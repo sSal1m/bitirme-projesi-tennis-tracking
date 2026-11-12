@@ -1,5 +1,38 @@
 # Doğrulama kaydı — 29 Eylül 2026
 
+## Doğrulama kaydı — 12 Kasım 2026
+
+### Donanım yazılımı derlemesi
+
+- PlatformIO 6.2.0 kuruldu; `espressif32@6.10.0` ve `esp32dev` hedefi ile
+  `.\.venv\Scripts\python.exe -m platformio run -d firmware` **başarıyla tamamlandı**.
+- Çıktı: `firmware/.pio/build/esp32dev/firmware.bin` ve `firmware.elf`.
+- Kaynak kullanımı: RAM %6.7 (22.016 / 327.680 bayt), Flash %23.4 (307.273 / 1.310.720 bayt).
+- Eylül ayındaki ArduinoJson 7 proxy hatası mevcut kaynakta zaten giderilmiş durumda;
+  `JsonObjectConst` okuması derlendi. **Kart yazılımı artık derleme açısından doğrulanmıştır.**
+- Derleme süresi ilk kurulumda yaklaşık 14 dakika sürdü (araç zinciri indirmesi dahil).
+
+### Bilgisayar tarafı protokol sözleşmesi
+
+- `tests/test_hardware_protocol.py` eklendi: `firmware/src/main.cpp` içindeki
+  `receiveLine()` doğrulama mantığının Python karşılığı. Kart bağlanmadan önce
+  özet paketinin kart tarafından kabul edileceğini kanıtlar.
+- Kapsanan durumlar: sürüm, sayaç tutarlılığı (FH+BH+belirsiz=toplam), reviewed ve
+  localized sınırları, isabet oranı aralığı (0-100), negatif hız, eksik alan, bozuk satır.
+- Toplam test sayısı 74'e çıktı (64 + 10), Ruff denetimi temiz.
+
+### Gerçek video ile yapılan saha ölçümü
+
+- Üç video adayı sisteme yüklendi ve ölçüldü:
+  - 480p, oyuncu kadrajda yok: **0 vuruş adayı**, reddedildi.
+  - 1080p, kamera eğik: 41 aday, yalnızca 13'ünde duvar konumu bulundu, güvenilmez.
+  - 1080p/24fps, sahne değişimi var: bölünmeden önce 189 aday ancak **0 duvar konumu**.
+- Sahne değişimleri `scripts/split_video.py` ile tespit edilip 30 saniyelik kliplere
+  bölündü (ses korunarak). Kliplerden birinde: top tespiti **%92,2**, 13 vuruş adayı,
+  **12'sinde duvar konumu (%92)**, ortalama yaklaşma hızı 30,4 km/sa.
+- **Not:** Bu değerler tek bir klibin ölçümüdür, saha başarı iddiası değildir.
+  Tam incelenmiş referans, oturum düzeyinde ayrım ve 100+ vuruşluk test kümesi hâlâ eksiktir.
+
 ## Yapılan yazılım kontrolleri
 
 - Windows, Python 3.11.9: sanal ortam ve uygulama bağımlılıkları kuruldu; `pip check` temiz.
@@ -15,7 +48,7 @@
 - Kullanıcıya ait tenis duvarı videosu olmadığı için otomatik vuruş sayısı, tür, hedef isabeti veya yaklaşma hızı için saha başarısı ölçülmedi.
 - RF-DETR Nano modeli kullanıcının görüntüleriyle henüz eğitilmedi; isteğe bağlı model bağımlılığı mevcut temel ortama kurulmadı.
 - Bağlı ESP32/OLED/COM portu bulunmadı. Kullanıcının isteğiyle donanım testleri şimdilik durduruldu.
-- İlk PlatformIO derleme denemesi ArduinoJson 7 proxy karşılaştırmasında hata verdi. Kaynak, sabit `JsonObjectConst` okumasına çevrildi; kullanıcının isteğine uyarak derleme tekrar çalıştırılmadı. **Kart yazılımı şu anda derleme ve fiziksel çalışma bakımından doğrulanmış sayılmaz.**
+- İlk PlatformIO derleme denemesi ArduinoJson 7 proxy karşılaştırmasında hata verdi. Kaynak, sabit `JsonObjectConst` okumasına çevrildi. **12 Kasım 2026'da derleme tekrar çalıştırıldı ve başarılı oldu** (bkz. yukarıdaki kayıt). Kart yazılımının **fiziksel çalışması ve ekran testi hâlâ doğrulanmamıştır.**
 
 ## Saha kabulü için uygulanacak deney
 

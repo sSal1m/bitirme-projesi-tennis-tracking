@@ -116,6 +116,9 @@ class LabelWindow(QMainWindow):
                     "height": image["height"],
                     "boxes": boxes,
                 }
+        # Resume at the first frame that has no annotation yet, so a long
+        # labelling session can be closed and continued without losing work.
+        self.index = self.first_unlabeled()
         self.setWindowTitle("Duvar Tenis · Veri etiketleme")
         self.resize(1180, 800)
         widget = QWidget()
@@ -154,6 +157,12 @@ class LabelWindow(QMainWindow):
             QShortcut(QKeySequence(key), self, activated=callback)
         self.load()
 
+    def first_unlabeled(self) -> int:
+        for position, path in enumerate(self.images):
+            if path.name not in self.records:
+                return position
+        return 0
+
     def load(self):
         path = self.images[self.index]
         image = cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_COLOR)
@@ -161,8 +170,10 @@ class LabelWindow(QMainWindow):
             raise ValueError(f"Görüntü açılamadı: {path}")
         self.canvas.set_image(as_qimage(image))
         self.canvas.boxes = list(self.records.get(path.name, {}).get("boxes", []))
+        done = sum(1 for item in self.images if item.name in self.records)
         self.status.setText(
-            f"{self.index + 1}/{len(self.images)} · {path.name} · {len(self.records)} kare kaydedildi"
+            f"{self.index + 1}/{len(self.images)} · {path.name} · "
+            f"{done}/{len(self.images)} kare etiketlendi"
         )
         self.canvas.update()
 
@@ -206,7 +217,8 @@ class LabelWindow(QMainWindow):
         temp = self.file.with_suffix(".tmp")
         temp.write_text(json.dumps(doc, indent=2), "utf-8")
         temp.replace(self.file)
-        self.status.setText(f"Kaydedildi · {len(self.records)}/{len(self.images)} kare")
+        done = sum(1 for item in self.images if item.name in self.records)
+        self.status.setText(f"Kaydedildi · {done}/{len(self.images)} kare etiketlendi")
 
     def advance(self, delta):
         self.save_current()

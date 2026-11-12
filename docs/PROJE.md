@@ -14,13 +14,17 @@ Amatör bir tenis oyuncusu duvara karşı çalışırken vuruşlarını ve hedef
 | Vuruş sayısı ve türü | Top/raket/poz ipuçları ve elle inceleme | Ayrı test çekiminde precision/recall/F1 |
 | Hedef tutarlılığı | Dört noktalı duvar kalibrasyonu ve temas haritası | Elle işaretlenmiş temas konumları |
 | Ölçüm belirsizliğini gösterme | Belirsiz tür, konumsuz temas, boş hız alanı | Eksik/örtülü nesne senaryoları |
-| Donanım katkısı | ESP32, I²C OLED, USB seri protokol | Fiziksel ekran–bilgisayar karşılaştırması |
-| Düşük başlangıç maliyeti | Mevcut bilgisayar ve telefon; tek kart/ekran | Tedarikten sonra gerçek maliyet tablosu |
+| Düşük başlangıç maliyeti | Mevcut bilgisayar ve telefon; tek kart/ekran yerine yazılım + mevcut telefon | Tedarikten sonra gerçek maliyet tablosu |
 | Tekrarlanabilir deney | Orijinal otomatik kayıt ve manuel referans ayrımı | JSON çıktısı, veri bölümü ve sürüm kayıtları |
+
+> **Kapsam değişikliği (Kasım 2026):** ESP32 + OLED gömülü sonuç ekranı proje
+> kapsamından çıkarıldı. Protokol ve kart yazılımı tasarlanmış, kart yazılımı
+> derlenmiş ve protokol bilgisayar tarafında test edilmiştir; **fiziksel donanım
+> doğrulaması yapılmamıştır ve projeye katkı olarak sunulmamaktadır.**
 
 ## Alternatifler ve seçim
 
-İki kamera, radar ve raket sensörü maliyet/kurulum yükü nedeniyle ilk sürümden çıkarıldı. Tek telefonla kayıt sonrası çalışma, kullanıcının tercihi ve mevcut Vega 8 bilgisayar nedeniyle seçildi. Görüntü modeli ESP32 üzerinde çalıştırılmıyor; ESP32 sonuçların alınması, doğrulanması ve OLED'e aktarılması görevini üstleniyor.
+İki kamera, radar ve raket sensörü maliyet/kurulum yükü nedeniyle ilk sürümden çıkarıldı. Tek telefonla kayıt sonrası çalışma, kullanıcının tercihi ve mevcut Vega 8 bilgisayar nedeniyle seçildi. Görüntü modeli ESP32 üzerinde çalıştırılmıyor; ESP32 yalnızca sonuçların alınması ve görüntülenmesi için tasarlanmış bir hedef olarak tutulmuş, ancak **donanım kapsam dışı bırakılmıştır**.
 
 Tam otomatik, doğrulanmamış bir antrenör yerine kullanıcı tarafından kontrol edilebilir ölçümler seçildi. İlk prototip renk/hareket takibi ile denenebilir. RF-DETR Nano özel veriyle eğitildiğinde aynı analiz/inceleme arayüzü üzerinden kullanılabilir.
 
@@ -50,13 +54,12 @@ Temel veri türleri `Calibration`, `Sample`, `Shot`, `Session`. Uygulama arka pl
 - Duvar antrenmanına yönelik kalibrasyon, hedef bölgesi ve olay eşleştirme.
 - Görüntü/ses ipuçlarının birlikte kullanılması ve ölçülemeyen değerlerin açık gösterimi.
 - Algoritma çıktısını bozmadan manuel referans oluşturma ve başarı değerlendirmesi.
-- Donanım haberleşme protokolü, bozuk paket kontrolü ve iki sayfalı gömülü ekran yazılımı.
 - Kendi antrenman verisinin toplanması, eğitim/test ayrımı ve ölçümlü deney.
 
 ## Deney ve teslim
 
 En az 100 gerçek test vuruşunda temas F1 ≥ %90; tür sınıflandırmasında kapsama ≥ %80 ve sınıflandırılanlarda doğruluk ≥ %90 hedeflenir. Henüz saha ölçümü yapılmadığı için bunlar başarı sonucu değil tasarım hedefidir. Hız ölçümünün bağımsız referansla doğrulanması bu eşiklerden ayrı raporlanır.
 
-Teslim paketi: kaynak kodu, kurulum rehberi, bağlantı şeması, parça listesi, firmware, örnek demo, veri hazırlama/eğitim araçları ve test raporu. Fiziksel montaj, gerçek veri toplama ve model eğitimi tamamlandığında rapora gerçek sonuçlar eklenir. Ekran tabanlı donanım kapsamının ders yönergesine uygunluğu hocanın şartlarıyla kontrol edilmelidir.
+Teslim paketi: kaynak kodu, kurulum rehberi, örnek demo, veri hazırlama/etiketleme/eğitim araçları, değerlendirme raporu ve test raporu. Gerçek veri toplama, model eğitimi ve saha doğrulaması tamamlandığında rapora gerçek sonuçlar eklenir. Donanım kapsam dışı olduğu için bağlantı şeması, parça listesi ve fiziksel montaj teslim kapsamında değildir; kart yazılımı ve seri protokolü "gelecek çalışma" olarak belgelerde tutulur.
 
 Sekiz haftalık sıra: iki hafta çekim/prototip, iki hafta etiketleme/eğitim, iki hafta entegrasyon, iki hafta saha testi ve rapor. Mevcut kod ilk prototip ve entegrasyon temelini sağlar.

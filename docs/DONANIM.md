@@ -1,5 +1,11 @@
 # ESP32 sonuç ekranı
 
+> ⚠️ **KAPSAM DIŞI (Kasım 2026).** Donanım bölümü projeden çıkarıldı; bu belge
+> yalnızca "gelecek çalışma" referansıdır. Aşağıdaki fiziksel kabul testi
+> **UYGULANMAMIŞTIR** ve teslimde başarı olarak sunulmamalıdır. Kart yazılımı
+> derlenmiş ve protokol bilgisayar tarafında test edilmiştir
+> (`tests/test_hardware_protocol.py`); fiziksel cihaz doğrulaması yapılmamıştır.
+
 Donanımın görevi, bilgisayardaki analiz sonucunu bağımsız küçük bir ekranda göstermek. Görüntü analizi ESP32 üzerinde çalışmaz. Sensör kullanılmaz.
 
 ## Parçalar

@@ -4,9 +4,13 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 
-# Yerel calisma dizini: gunluk kotu dosyalar haric, kayitli oturum JSON'leri,
-# ekran goruntuleri ve RF-DETR paketi korunur (Colab'a yuklemek icin gerekli).
-data/sessions.sqlite3
+# Yerel calisma dizini: yeni oturum ciktilari ve kotu dosyalar izlenmez.
+# Depoda tutulanlar (gercek oturum JSON'lari, ekran goruntuleri, RF-DETR
+# paketi) zaten izlenir; asagidaki kurallar yeni dosyalari disarida tutar.
+data/*
+!data/vendor/
+data/vendor/*
+!data/vendor/rfdetr-1.11.0-py3-none-any.whl
 
 datasets/
 runs/
@@ -15,8 +19,8 @@ runs/
 *.mov
 *.avi
 
-# Indirilen model dosyalari agirlik olarak yerelde kalir; yalnizca tanim dosyasi
-# ve model dosyasi Git'te tutulur (pilot kurulumu tek komut calistirsin).
+# Indirilen model dosyalari yerelde kalir; yalnizca README, model tanimi ve
+# pose modeli Git'te tutulur (pilot kurulumu tek komut calistirsin).
 models/*
 !models/README.md
 !models/pose_landmarker_lite.sha256
