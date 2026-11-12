@@ -1,0 +1,16 @@
+numpy<3,>=1.26
+opencv-contrib-python<5,>=4.10
+av<19,>=14
+PySide6<7,>=6.8
+pyserial<4,>=3.5
+
+[ai]
+rfdetr==1.11.0
+mediapipe<0.11,>=0.10.20
+
+[dev]
+pytest<10,>=8
+ruff<1,>=0.11
+
+[pose]
+mediapipe<0.11,>=0.10.20
