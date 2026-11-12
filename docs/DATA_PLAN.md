@@ -12,12 +12,32 @@
 
 | Adım | Sonuç |
 |---|---|
-| TRAIN kareleri | 914 kare, 16 klip (`datasets/wall/train`) |
+| TRAIN kareleri | 734 kare, 13 klip (`datasets/wall/train`) |
 | TEST kareleri | 166 kare, **farklı kayıt** (`datasets/wall/test`) |
-| VALID kareleri | **Yok — kendi kaydımızı çekmeliyiz** |
+| VALID kareleri | 180 kare, 3 klip (`datasets/wall/valid`) — pilot için ayrıldı |
 | Split sızıntısı | ✔ Yok (aşağıdaki kanıt) |
 | Etiketleme aracı | ✔ İlk etiketlenmemiş kareden devam ediyor |
-| Test sayısı | 78 |
+| COCO etiketlemesi | **Pilot sürüyor** — `valid` bölümünde kullanıcı etiketliyor |
+| Test sayısı | 86 (78 + 8 pilot veri testi) |
+
+### Pilot bölmesi (13 Kasım 2026)
+
+`valid` bölümü elle kuruldu: kayıt sırasındaki ilk 3 klip (`clip_01`–`clip_03`,
+her biri 60 kare) `datasets/wall/valid` altına taşındı. Kalan 13 klip `train`
+bölümünde kaldı, `test` bölümüne dokunulmadı.
+
+```powershell
+.\.venv\Scripts\python.exe scripts\split_pilot.py --dataset datasets\wall --valid-clips 3 --dry-run
+```
+
+Araç **yalnızca bütün klipleri** taşır; aynı çekimin iki bölümde birden
+bulunmasını reddeder ve COCO etiketlerini taşınan karelerle birlikte yeni
+bölüme taşır.
+
+> ⚠️ **Bu bölme geçicidir.** `valid` ve `train` aynı kayıttan ("How to Train on
+> a Tennis Wall") gelen kliplerden oluşur; bu nedenle `valid` üzerindeki metrik
+> **genellenebilirlik kanıtı değildir**, yalnızca boru hattının çalıştığını
+> gösterir. Gerçek `valid` için **üçüncü bağımsız kayıt** gerekir (aşağıya bak).
 
 ### Split bütünlüğü kanıtı
 
@@ -28,10 +48,14 @@ TEST  kaynağı : 4bafc320d8718ac1...  13134650_1920_1080_30fps.mp4   (53.6 MB, 
 TRAIN kaynağı : 16 ayrı anahtar      -> How to Train on a Tennis Wall.mp4 (16 klip, 24 fps)
 
 test/  166 kare  -> tamamı  4bafc320d8718ac1
-train/ 914 kare  -> tamamı  16 klip anahtarı (baskın kayıt)
+valid/ 180 kare  -> 3 klip anahtarı (clip_01, clip_02, clip_03)
+train/ 734 kare  -> kalan 13 klip anahtarı (baskın kayıt)
 ```
 
-Kesişim yoktur. İki kayıt farklı mekân, farklı oyuncu, farklı kamera açısıdır.
+Kesişim yoktur. `valid` ve `train` aynı kayıttan geldiği için aralarındaki
+kesişim **klip seviyesinde** sıfırdır ama **kayıt seviyesinde** yoktur; bu
+nedenle pilot `valid` metriği genellenebilirlik kanıtı sayılmaz.
+`test` ise farklı mekân, farklı oyuncu, farklı kamera açısıdır.
 
 ---
 

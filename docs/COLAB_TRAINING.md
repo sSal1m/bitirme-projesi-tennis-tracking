@@ -42,18 +42,38 @@ Aynı çekimin klipleri **tek bölümde** tutulur. Mevcut dağılım:
 
 ## 2. Veri setini GPU ortamına taşı
 
+**Otomatik yol (önerilen).** `scripts/pack_pilot.py` yalnızca etiketlenmiş kareleri
+paketler ve arşivin kök dizinine görselleri + `_annotations.coco.json` dosyasını
+koyar. Böylece Colab'da iç içe klasör sorunu oluşmaz.
+
 ```powershell
-# Colab'a yüklemek için sıkıştır
-Compress-Archive -Path datasets\wall\train\*.jpg, datasets\wall\train\_annotations.coco.json -DestinationPath train.zip
-Compress-Archive -Path datasets\wall\test\*.jpg,  datasets\wall\test\_annotations.coco.json  -DestinationPath test.zip
+.\.venv\Scripts\python.exe scripts\pack_pilot.py --dataset datasets\wall --output .
+# -> train.zip, valid.zip
 ```
+
+> `Compress-Archive` yerine bu yol kullanılmalı. `Compress-Archive` çıktısı
+> Linux'ta yolu bozabiliyor ve etiketlenmemiş kareleri de içine alıyor.
 
 Kaggle kullanıyorsan `datasets/wall` klasörünü olduğu gibi yükle (zip'e gerek yok).
 
 ## 3. Colab'da eğitim
 
+**Hazır notebook:** `train_colab.ipynb` (proje kökünde). Dosyayı Colab'a yükle,
+**Runtime → Change runtime type → T4 GPU** seç, `train.zip` ve `valid.zip`
+dosyalarını yükle, **Run all** çalıştır.
+
+Notebook sırasıyla: Drive bağlantısı → GPU kontrolü → `rfdetr==1.11.0` kurulumu →
+`train.zip`/`valid.zip` bulma → arşivleri `/content/wall/{train,valid}` altına
+açma → COCO bütünlük ve **çekim sızıntısı** kontrolü → 5 epoch pilot eğitimi →
+model paketini (`wall-nano.pth` + `wall-nano.json`) hazırlama → Drive'a kopyalama.
+
+> Notebook'u `scripts/make_colab_notebook.py` üretir. Hücreleri değiştirmek istersen
+> scripti düzenleyip yeniden çalıştır; elle JSON düzenleme hatalı not defteri üretir.
+
+Manuel yol:
+
 1. **Runtime → Change runtime type → T4 GPU**
-2. `train.zip` ve `test.zip` dosyalarını Colab'a yükle.
+2. `train.zip` ve `valid.zip` dosyalarını Colab'a yükle.
 3. Aşağıdaki hücreleri sırayla çalıştır:
 
 ```python
@@ -61,7 +81,7 @@ Kaggle kullanıyorsan `datasets/wall` klasörünü olduğu gibi yükle (zip'e ge
 
 import zipfile, os
 os.makedirs("datasets/wall", exist_ok=True)
-for name in ("train", "test"):
+for name in ("train", "valid"):
     with zipfile.ZipFile(f"{name}.zip") as z:
         z.extractall(f"datasets/wall/{name}")
 
@@ -69,18 +89,16 @@ import torch
 print(torch.cuda.is_available(), torch.cuda.get_device_name(0))
 ```
 
-4. **Klasör yapısını doğrula.** `Compress-Archive` Linux'ta yolu bozabilir.
-   Açtıktan sonra şunu çalıştır ve `_annotations.coco.json` dosyasının
-   **resimlerin yan yana** olduğunu gör:
+4. **Klasör yapısını doğrula.** RF-DETR `dataset_dir/{train,valid,test}`
+   düzenini bekler ve her bölümde `_annotations.coco.json` arar. Açtıktan sonra
+   şunu çalıştır ve dosyanın **resimlerin yan yana** olduğunu gör:
 
 ```python
 !ls datasets/wall/train | head
 !ls datasets/wall/train/_annotations.coco.json
 ```
 
-   Dosya görünmüyorsa zip'i normal .zip olarak (Windows'ta "Sıkıştırılmış klasör"
-   değil, `Compress-Archive` çıktısı olarak) yeniden oluştur veya Kaggle'a
-   `datasets/wall` klasörünü olduğu gibi yükle.
+   Dosya görünmüyorsa zip'i `scripts/pack_pilot.py` ile yeniden üret.
 
 5. `scripts/train_detector.py` dosyasını Colab'a yükle (`scripts/` klasörüne).
 6. Eğitimi başlat:
