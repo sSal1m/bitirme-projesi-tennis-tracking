@@ -19,6 +19,11 @@ runs/
 *.mov
 *.avi
 
+# Colab'a yuklenen pilot arsivleri uretilir; depoda tutulmaz.
+train.zip
+valid.zip
+test.zip
+
 # Indirilen model dosyalari yerelde kalir; yalnizca README, model tanimi ve
 # pose modeli Git'te tutulur (pilot kurulumu tek komut calistirsin).
 models/*
