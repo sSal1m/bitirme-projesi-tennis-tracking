@@ -27,6 +27,29 @@ Arayüzü denemek için **Örnek oturumu keşfet** düğmesi var. Bu video ve et
 - CSV/JSON ve **sessiz** işaretlenmiş MP4 dışa aktarma.
 - ESP32'ye USB üzerinden özet gönderme ve karttan alındı yanıtını kontrol etme.
 - Çekim bazında veri hazırlama, yerel kutu etiketleyici, RF-DETR eğitim aracı ve değerlendirme aracı.
+- RF-DETR pilot boru hattı: klib bazlı bölme, Colab'a hazır arşiv, tek tikla eğitim notebook'u.
+
+## RF-DETR pilot eğitimi (Colab)
+
+Model eğitimi için etiketleme, bölme, paketleme ve Colab adımları:
+**[PILOT_EGITIM.md](PILOT_EGITIM.md)** ve [docs/COLAB_TRAINING.md](docs/COLAB_TRAINING.md).
+
+Kısa özet:
+
+```powershell
+# 1) Bölme (yalnızca bütün klipler taşınır, sızıntı olmaz)
+.\.venv\Scripts\python.exe scripts\split_pilot.py --dataset datasets\wall --valid-clips 3 --dry-run
+
+# 2) Etiketleme (iki pencere: valid ve train)
+.\.venv\Scripts\python.exe -m tennis_tracking.labeler datasets\wall\valid
+.\.venv\Scripts\python.exe -m tennis_tracking.labeler datasets\wall\train
+
+# 3) Paketleme -> train.zip + valid.zip  (veya PilotPaketle.cmd)
+.\.venv\Scripts\python.exe scripts\pack_pilot.py --dataset datasets\wall --output .
+```
+
+Ardından `train_colab.ipynb` dosyasını Colab'da **T4 GPU** ile aç, `train.zip`
+ve `valid.zip` dosyalarını yükle ve **Run all** çalıştır.
 
 ## Gerçek çekimde ilk kullanım
 
