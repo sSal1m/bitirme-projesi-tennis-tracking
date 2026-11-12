@@ -1,0 +1,23 @@
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Yerel calisma dizini: gunluk kotu dosyalar haric, kayitli oturum JSON'leri,
+# ekran goruntuleri ve RF-DETR paketi korunur (Colab'a yuklemek icin gerekli).
+data/sessions.sqlite3
+
+datasets/
+runs/
+.pio/
+*.mp4
+*.mov
+*.avi
+
+# Indirilen model dosyalari agirlik olarak yerelde kalir; yalnizca tanim dosyasi
+# ve model dosyasi Git'te tutulur (pilot kurulumu tek komut calistirsin).
+models/*
+!models/README.md
+!models/pose_landmarker_lite.sha256
+!models/pose_landmarker_lite.task

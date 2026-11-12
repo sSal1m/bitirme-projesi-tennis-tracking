@@ -1,2 +1,0 @@
-[console_scripts]
-duvar-tenis = tennis_tracking.app:main
