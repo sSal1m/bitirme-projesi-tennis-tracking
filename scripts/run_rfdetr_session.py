@@ -14,15 +14,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
 
 from tennis_tracking.analysis import analyze
 from tennis_tracking.domain import Calibration, Session
 
+ROOT = Path(__file__).resolve().parents[1]
 POSE = ROOT / "models" / "pose_landmarker_lite.task"
 MODEL = ROOT / "models" / "wall-nano.pth"
 
