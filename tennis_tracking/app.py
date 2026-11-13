@@ -292,7 +292,7 @@ class MainWindow(QMainWindow):
         live_row = QHBoxLayout()
         live_row.setSpacing(6)
         self.live_cards = [
-            LiveMetric("VURUŞ", "Bu ana kadar başlayan vuruşlar"),
+            LiveMetric("VURUŞ", "Bu ana kadar / toplam aday"),
             LiveMetric("FH - BH", "Bu ana kadar forehand ve backhand sayıları"),
             LiveMetric("HEDEF", "Bu ana kadar duvara ulaşan, konumu belirlenen vuruşların isabeti"),
             LiveMetric("HIZ", "Bu ana kadar tamamlanan güvenilir uçuşların ortalama yaklaşma hızı"),
@@ -910,14 +910,20 @@ class MainWindow(QMainWindow):
         if not self.session:
             return
         current = self.session.summary_at(t)
+        total = self.session.summary()["strokes"]
         values = [
-            str(current["strokes"]),
+            # "8 / 14" keeps the running count from being read as the total.
+            f"{current['strokes']} / {total}",
             f"{current['forehand']} - {current['backhand']}",
             f"%{current['hit_rate']:g}" if current["hit_rate"] is not None else "—",
             f"{current['approach_kmh']:g}" if current["approach_kmh"] is not None else "—",
         ]
         for card, value in zip(self.live_cards, values):
             card.value.setText(value)
+        self.live_cards[0].setToolTip(
+            f"Bu ana kadar {current['strokes']} vuruş; oturumda toplam {total} aday var. "
+            "Sayı video oynatıldıkça artar."
+        )
         self.live_cards[2].setToolTip(
             f"Bu ana kadar {current['hits']}/{current['localized']} konumu belirlenen vuruş hedefte."
         )

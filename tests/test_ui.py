@@ -191,15 +191,23 @@ def test_live_metrics_follow_video_position(qapp, tmp_path, demo):
     window = MainWindow(tmp_path)
     window.open_session(deepcopy(demo))
     window.position_changed(0)
-    assert [card.value.text() for card in window.live_cards] == ["0", "0 - 0", "—", "—"]
+    total = window.session.summary()["strokes"]
+    assert [card.value.text() for card in window.live_cards] == [
+        f"0 / {total}",
+        "0 - 0",
+        "—",
+        "—",
+    ]
     window.position_changed(2500)
     current = window.session.summary_at(2.5)
-    assert window.live_cards[0].value.text() == str(current["strokes"])
+    # The running count is shown next to the total so it cannot be mistaken
+    # for the session total.
+    assert window.live_cards[0].value.text() == f"{current['strokes']} / {total}"
     assert window.live_cards[1].value.text() == f"{current['forehand']} - {current['backhand']}"
     assert window.live_cards[2].value.text() == f"%{current['hit_rate']:g}"
     assert window.live_cards[3].value.text() == f"{current['approach_kmh']:g}"
     window.position_changed(0)
-    assert window.live_cards[0].value.text() == "0"
+    assert window.live_cards[0].value.text() == f"0 / {total}"
     window.close()
 
 
