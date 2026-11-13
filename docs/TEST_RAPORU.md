@@ -1,5 +1,93 @@
 # Doğrulama kaydı — 29 Eylül 2026
 
+## Doğrulama kaydı — 13 Kasım 2026
+
+### RF-DETR Nano eğitimi ve model doğrulaması
+
+**Eğitim:** Google Colab (T4 GPU), `rfdetr==1.11.0`, 40 epoch, `train` 734 kare /
+`valid` 180 kare, çözünürlük 576. Çıktı `wall-nano.pth` + `wall-nano.json`
+(`models/` klasörüne yerleştirildi).
+
+**Model bütünlüğü:**
+
+| Kontrol | Sonuç |
+|---|---|
+| `wall-nano.json` içindeki SHA256 ile `wall-nano.pth` özeti | ✔ **aynı** (`63ddb47b…900d9f`) |
+| Mimari / sınıf eşlemesi | ✔ `RFDETRNano`, `ball=0`, `racket=1` |
+| Çözünürlük uygunluğu | ✔ 576 = 32 × 18 (`patch_size 16 × num_windows 2`) |
+| Checkpoint yapısı | ✔ 477 tensor, 116.3 MB, PyTorch arşivi geçerli |
+| Uygulama yükleyicisi | ✔ `RFDETRDetector` modeli 5.2 sn'de yükledi |
+| Çıkarım hızı (CPU) | ✔ ~0.20 sn/kare |
+
+### Kutü tespiti: RF-DETR vs HSV (elle etiketlenmiş `valid` bölümü)
+
+Referans: 178 karenin elle çizilmiş `ball` ve `racket` kutuları. Her iki dedektör
+**aynı karelerde, aynı referansa** karşı çalıştırıldı.
+
+| Sınıf | Yöntem | TP | FP | FN | P | R | F1 |
+|---|---|---|---|---|---|---|---|
+| ball | RF-DETR | 32 | 124 | 97 | 20.5% | 24.8% | 22.5% |
+| ball | HSV | 0 | 301 | 129 | 0.0% | 0.0% | 0.0% |
+| racket | RF-DETR | 140 | 30 | 15 | 82.4% | 90.3% | 86.2% |
+| racket | HSV | 0 | 0 | 155 | 0.0% | 0.0% | 0.0% |
+
+**Toplam (iki sınıf):** RF-DETR P=52.8% R=60.6% F1=**56.4%** · HSV F1=**0.0%**
+
+#### Küçük nesne düzeltmesi
+
+Top referans kutuları kare alanının medyan **%0.09**'u (en küçük %0.016) — yani
+birkaç piksel genişliğinde. Bu kutular için IoU oranı, modelin kutusunun
+referanstan birkaç piksel farklı olmasıyla bile çöker. Bu yüzden ikinci bir
+ölçüt de raporlandı: **tahmin merkezinin referans kutusunun içinde olması**.
+
+| Sınıf | Yöntem | P | R | F1 |
+|---|---|---|---|---|
+| ball | RF-DETR | 79.5% | 96.1% | **87.0%** |
+| ball | HSV | 40.2% | 93.8% | 56.3% |
+| racket | RF-DETR | 91.2% | 100.0% | **95.4%** |
+| racket | HSV | 0.0% | 0.0% | 0.0% |
+| **toplam** | **RF-DETR** | **85.6%** | **98.2%** | **91.5%** |
+| **toplam** | **HSV** | 40.2% | 42.6% | 41.4% |
+
+RF-DETR'in top tahminlerinin **%99.2**'si doğru topun üzerine düşüyor; IoU'yu
+düşüren tek şey kutu boyutundaki fark. HSV ise çok daha fazla yanlış pozitif
+üretiyor (276 top tahmini).
+
+Raplayıcı: `scripts/compare_detectors.py` → `data/rfdetr_vs_hsv.json`
+
+### Uçtan uca uygulama doğrulaması
+
+`clip_09_0269-0299.mp4` **aynı kalibrasyonla** iki kez analiz edildi:
+
+| | HSV (renk/hareket) | RF-DETR (wall-nano) |
+|---|---|---|
+| Vuruş adayı | 13 | **32** |
+| Duvar teması bulunan | 12 | 31 |
+| Konum bulunan | 12 | 31 |
+| forehand / backhand / belirsiz | 2 / 7 / 4 | **17 / 11 / 4** |
+| Ortalama güven | 0.564 | **0.729** |
+| Uyarı sayısı | 2 | 1 |
+
+±0.3 sn eşleştirmesinde **HSV'nin 13 adayının 13'ü de RF-DETR tarafından
+bulundu** (yalnız HSV: 0). RF-DETR 19 aday daha üretti; bunların gerçek vuruş
+olup olmadığı **elle inceleme ile** belirlenmelidir.
+
+Ayrıca uygulamaya `--session` seçeneği eklendi: bir oturum doğrudan inceleme
+sekmesinde açılabiliyor.
+
+```powershell
+.\.venv\Scripts\python.exe -m tennis_tracking.app --session d1e747d3c39b402994afc54f077d5c1d
+```
+
+### Bekleyen doğrulamalar
+
+- **Vuruş F1'i ölçülmedi.** `scripts/evaluate.py` elle incelenmiş bir referans
+  ister; 32 adayın hangilerinin gerçek vuruş olduğu henüz incelenmedi.
+- `valid` bölümü **aynı kayıttan** geldiği için genellenebilirlik kanıtı
+  değildir; üçüncü bağımsız kayıt hâlâ eksik.
+- `test` bölümünün (166 kare, farklı kayıt) etiketleri yok; gerçek tutulmuş
+  ölçüm için etiketlenmeli.
+
 ## Doğrulama kaydı — 12 Kasım 2026
 
 ### Donanım yazılımı derlemesi

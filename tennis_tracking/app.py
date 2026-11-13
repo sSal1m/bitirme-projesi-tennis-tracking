@@ -1053,6 +1053,28 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self.error(str(exc))
 
+    def open_session_by_id(self, reference: str):
+        """Open a stored session given a folder id or a path to its session.json.
+
+        Used by the --session command line option so a session can be opened
+        straight into the review tab without going through the history list.
+        """
+        try:
+            path = Path(reference)
+            if path.is_dir():
+                path = path / "session.json"
+            if path.is_file():
+                doc = json.loads(path.read_text("utf-8"))
+                session = Session.from_dict(doc)
+            else:
+                session = self.store.load(reference)
+            if not Path(session.video_path).is_file():
+                raise ValueError("Kaynak video taşınmış. Orijinal dosyayı eski konumuna geri koy.")
+            self.open_session(session)
+            self.notify(f"Oturum acildi: {session.name}")
+        except Exception as exc:
+            self.error(str(exc))
+
     def change_target(self, target):
         if self.session:
             self.session.calibration.target = target
@@ -1234,6 +1256,10 @@ def main():
     parser.add_argument("--demo", action="store_true")
     parser.add_argument("--screenshot", help="Save a UI screenshot and exit, for visual QA")
     parser.add_argument("--data-dir")
+    parser.add_argument(
+        "--session",
+        help="Open a stored session directly (folder id or path to session.json), for review.",
+    )
     args = parser.parse_args()
     if args.screenshot:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -1248,6 +1274,8 @@ def main():
     app.setStyleSheet(STYLE)
     window = MainWindow(args.data_dir)
     window.show()
+    if args.session:
+        QTimer.singleShot(100, lambda: window.open_session_by_id(args.session))
     if args.demo:
         QTimer.singleShot(100, window.load_demo)
     if args.screenshot:

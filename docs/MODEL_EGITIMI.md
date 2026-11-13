@@ -1,6 +1,12 @@
 # Kendi duvarına uygun model
 
-Uygulamanın varsayılanı renk/hareket takibidir. Genel MediaPipe modeli vücudu izler. **RF-DETR Nano mimarisi hazırdır fakat senin duvarına özel eğitilmiş top/raket ağırlıkları henüz yoktur.** Ekran görüntüsünün sahibinin deposunda da bu ağırlıklar paylaşılmamıştır.
+Uygulamanın varsayılanı renk/hareket takibidir. Genel MediaPipe modeli vücudu izler.
+
+> ✅ **13 Kasım 2026:** Bu depodaki veri setiyle eğitilmiş **RF-DETR Nano**
+> ağırlıkları artık mevcut: `models/wall-nano.pth` + `models/wall-nano.json`
+> (40 epoch, train 734 / valid 180 kare, çözünürlük 576).
+> Ayrıntı ve ölçüm sonuçları: [TEST_RAPORU.md](TEST_RAPORU.md).
+> Model tanımı ve kurulum: [models/README.md](../models/README.md).
 
 ## 1. Ayrı çekimleri bölümlere ayır
 
@@ -13,6 +19,13 @@ En az üç ayrı çekim oturumu kullan. Aynı antrenmanın benzer kliplerini ayn
 ```
 
 Varsayılan saniyede 2 kare. Dosya içeriğinin hash'i adlara eklenir; aynı video başka bölüme tekrar alınamaz. Farklı dosyalara bölünmüş aynı çekimi sistem otomatik tanıyamaz; onları aynı bölümde tut.
+
+**Klib bazlı bölme:** `scripts/split_pilot.py` yalnızca bütün klipleri taşır ve
+aynı çekimin iki bölümde birden bulunmasını reddeder.
+
+```powershell
+.\.venv\Scripts\python.exe scripts\split_pilot.py --dataset datasets\wall --valid-clips 3 --dry-run
+```
 
 ## 2. Yerel kutu etiketleyici
 
