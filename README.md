@@ -51,6 +51,33 @@ Kısa özet:
 Ardından `train_colab.ipynb` dosyasını Colab'da **T4 GPU** ile aç, `train.zip`
 ve `valid.zip` dosyalarını yükle ve **Run all** çalıştır.
 
+## Eğitilmiş modeli kullanma ve değerlendirme
+
+`models/wall-nano.pth` + `models/wall-nano.json` eğitilmiş modeldir. Uygulamada
+**Ölçüm/takip → RF-DETR modeli seç** ile seçilir. Ayrıntı: [models/README.md](models/README.md).
+
+RF-DETR çıkarımı `torch` ister:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision
+.\.venv\Scripts\python.exe -m pip install -e ".[ai]"
+```
+
+**Kutu tespiti karşılaştırması** (elle etiketlenmiş `valid` kareleri üzerinde):
+
+```powershell
+.\.venv\Scripts\python.exe scripts\compare_detectors.py
+```
+
+**Vuruş F1'i** elle incelenmiş referans gerektirir. Kayıtlı bir oturumu doğrudan
+inceleme sekmesinde açıp bütün vuruşları gözden geçir, sonra:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\evaluate.py data\<OTURUM_KIMLIGI>\session.json --output data\degerlendirme.json
+```
+
+Sonuçlar: [docs/TEST_RAPORU.md](docs/TEST_RAPORU.md)
+
 ## Gerçek çekimde ilk kullanım
 
 1. Telefonu sabitle; arka kamerayla normal hızda 1080p/60 FPS çek. Oyuncunun tamamı, raket ve duvar aynı karede olsun. Başlangıçta 20–30 saniyelik klipler kullan.
