@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 import pytest
 
-from scripts.pack_pilot import pack_split
+from scripts.pack_pilot import PackLock, pack_split
 from scripts.split_pilot import clip_order, group_clips
 from scripts.split_pilot import main as split_main
 
@@ -180,3 +180,49 @@ def test_pack_split_without_annotations_packs_nothing(tmp_path):
     result = pack_split(folder, tmp_path / "train.zip")
     assert result["packed"] == 0
     assert not (tmp_path / "train.zip").exists()
+
+
+def test_pack_split_leaves_the_old_archive_intact_when_it_fails(tmp_path, monkeypatch):
+    """A failed run must not destroy the archive that is already there."""
+    folder = tmp_path / "train"
+    build_split(folder, ["clipA"])
+    write_coco(folder, ["clipA_0000.jpg", "clipA_0001.jpg"])
+
+    destination = tmp_path / "train.zip"
+    good = pack_split(folder, destination)
+    assert good["packed"] == 2
+    original = destination.read_bytes()
+
+    # Break the writer and run again: the old archive has to survive.
+    def boom(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("scripts.pack_pilot.zipfile.ZipFile", boom)
+    with pytest.raises(OSError):
+        pack_split(folder, destination)
+
+    assert destination.read_bytes() == original
+    # No half-written leftovers next to the archive.
+    assert not list(tmp_path.glob("*.part"))
+
+
+def test_pack_split_publishes_only_a_verified_archive(tmp_path):
+    folder = tmp_path / "train"
+    build_split(folder, ["clipA"])
+    write_coco(folder, ["clipA_0000.jpg"])
+    destination = tmp_path / "train.zip"
+    pack_split(folder, destination)
+    assert destination.is_file()
+    assert not list(tmp_path.glob("*.part"))
+    with zipfile.ZipFile(destination) as archive:
+        assert archive.testzip() is None
+
+
+def test_pack_lock_blocks_a_second_concurrent_run(tmp_path):
+    lock_path = tmp_path / ".pack.lock"
+    with PackLock(lock_path):
+        assert lock_path.is_file()
+        with pytest.raises(SystemExit, match="çalışan"):
+            with PackLock(lock_path):
+                pass
+    assert not lock_path.exists()

@@ -19,8 +19,39 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import zipfile
 from pathlib import Path
+
+
+class PackLock:
+    """Refuse to run twice at the same time.
+
+    Two concurrent runs write to the same archive names; the second one
+    truncates the file the first one is still building. A lock file makes the
+    second run stop instead of destroying the first one's work.
+    """
+
+    def __init__(self, path: Path):
+        self.path = path
+        self.acquired = False
+
+    def __enter__(self) -> "PackLock":
+        try:
+            handle = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            raise SystemExit(
+                f"Zaten çalışan bir paketleme var ({self.path}). "
+                "Bitmesini bekle veya kilit dosyasını sil."
+            ) from None
+        os.write(handle, str(os.getpid()).encode("ascii"))
+        os.close(handle)
+        self.acquired = True
+        return self
+
+    def __exit__(self, *args) -> None:
+        if self.acquired and self.path.exists():
+            self.path.unlink()
 
 
 def labelled_images(folder: Path) -> tuple[list[str], dict]:
@@ -44,13 +75,37 @@ def pack_split(folder: Path, destination: Path) -> dict:
         )
 
     annotations = doc.get("annotations", [])
-    with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        for name in names:
-            archive.write(folder / name, arcname=name)
-        archive.writestr(
-            "_annotations.coco.json",
-            json.dumps(doc, ensure_ascii=False, indent=2),
-        )
+    # Write to a temporary file and move it into place only after it has been
+    # verified. Writing straight to the destination means an interrupted run
+    # (closed console, killed process) leaves a truncated archive that still
+    # has a valid-looking header but no central directory.
+    temporary = destination.with_suffix(destination.suffix + ".part")
+    try:
+        with zipfile.ZipFile(temporary, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for name in names:
+                archive.write(folder / name, arcname=name)
+            archive.writestr(
+                "_annotations.coco.json",
+                json.dumps(doc, ensure_ascii=False, indent=2),
+            )
+
+        # Verify before publishing: the archive must open, must not contain a
+        # corrupt entry, and must hold every image plus the COCO file at root.
+        with zipfile.ZipFile(temporary) as archive:
+            if archive.testzip() is not None:
+                raise SystemExit(f"{folder.name}: arsiv bozuk, paketleme iptal edildi.")
+            entries = archive.namelist()
+            if any("/" in entry for entry in entries):
+                raise SystemExit(f"{folder.name}: arsivde ic ice klasor var, paketleme iptal.")
+            if len([e for e in entries if e.lower().endswith(".jpg")]) != len(names):
+                raise SystemExit(f"{folder.name}: arsivde kare sayisi tutmuyor, paketleme iptal.")
+            if "_annotations.coco.json" not in entries:
+                raise SystemExit(f"{folder.name}: COCO dosyasi kok dizinde degil, paketleme iptal.")
+
+        temporary.replace(destination)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
 
     total_images = len(list(folder.glob("*.jpg")))
     return {
@@ -78,24 +133,25 @@ def main() -> None:
     output = Path(args.output).resolve()
     output.mkdir(parents=True, exist_ok=True)
 
-    for split in args.splits:
-        folder = root / split
-        if not folder.is_dir():
-            print(f"{split}: klasör yok, atlandi.")
-            continue
-        destination = output / f"{split}.zip"
-        result = pack_split(folder, destination)
-        if result["packed"] == 0:
+    with PackLock(output / ".pack.lock"):
+        for split in args.splits:
+            folder = root / split
+            if not folder.is_dir():
+                print(f"{split}: klasör yok, atlandi.")
+                continue
+            destination = output / f"{split}.zip"
+            result = pack_split(folder, destination)
+            if result["packed"] == 0:
+                print(
+                    f"{split}: etiketli kare yok. Once {folder} icindeki kareleri "
+                    "etiketle: python -m tennis_tracking.labeler " + str(folder)
+                )
+                continue
+            size = destination.stat().st_size / 1024 / 1024
             print(
-                f"{split}: etiketli kare yok. Once {folder} icindeki kareleri "
-                "etiketle: python -m tennis_tracking.labeler " + str(folder)
+                f"{split}.zip: {result['packed']} kare, {result['boxes']} kutu, "
+                f"{size:.1f} MB (etiketlenmemis {result['skipped']} kare disarida)"
             )
-            continue
-        size = destination.stat().st_size / 1024 / 1024
-        print(
-            f"{split}.zip: {result['packed']} kare, {result['boxes']} kutu, "
-            f"{size:.1f} MB (etiketlenmemis {result['skipped']} kare disarida)"
-        )
 
 
 if __name__ == "__main__":

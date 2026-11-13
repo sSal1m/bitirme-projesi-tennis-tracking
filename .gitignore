@@ -23,6 +23,8 @@ runs/
 train.zip
 valid.zip
 test.zip
+*.zip.part
+.pack.lock
 
 # Indirilen model dosyalari yerelde kalir; yalnizca README, model tanimi ve
 # pose modeli Git'te tutulur (pilot kurulumu tek komut calistirsin).
