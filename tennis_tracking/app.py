@@ -362,7 +362,10 @@ class MainWindow(QMainWindow):
         setup.addSpacing(8)
         setup.addWidget(QLabel("03  DUVAR KALİBRASYONU", objectName="setupGroup"))
         setup.addWidget(button("Duvarın 4 köşesini seç", self.start_calibration))
-        self.calibration_hint = QLabel("Sol üst → sağ üst → sağ alt → sol alt")
+        self.calibration_hint = QLabel(
+            "Video üzerinde köşeleri tıkla: sol üst → sağ üst → sağ alt → sol alt. "
+            "Sonra hedefi aşağıdaki 'Duvarda isabet' haritasında sürükleyerek seç."
+        )
         self.calibration_hint.setWordWrap(True)
         self.calibration_hint.setObjectName("muted")
         setup.addWidget(self.calibration_hint)
@@ -374,8 +377,18 @@ class MainWindow(QMainWindow):
         self.setup_panel.setMinimumHeight(setup.sizeHint().height())
         self.setup_scroll.setWidget(self.setup_panel)
         setup_container_layout.addWidget(self.setup_scroll, 1)
-        action_row = QHBoxLayout()
-        action_row.setContentsMargins(18, 10, 18, 16)
+        action_row = QVBoxLayout()
+        action_row.setContentsMargins(18, 6, 18, 16)
+        action_row.setSpacing(8)
+        # This button stays outside the scrolling panel: the two calibration
+        # steps used to hide inside a scrolling sidebar, so a new user could
+        # not find the control the status line was asking for.
+        self.mark_wall_btn = button("Duvar ve hedefi işaretle", self.mark_wall_and_target)
+        self.mark_wall_btn.setMinimumHeight(38)
+        self.mark_wall_btn.setToolTip(
+            "Duvarın köşelerini videodan seçer, sonra hedef alanını haritada belirler."
+        )
+        action_row.addWidget(self.mark_wall_btn)
         self.analyze_btn = button("Antrenmanı analiz et →", self.start_analysis, True)
         self.analyze_btn.setMinimumHeight(42)
         action_row.addWidget(self.analyze_btn)
@@ -591,7 +604,8 @@ class MainWindow(QMainWindow):
         self.new_shot()
         self.refresh_results()
         self.notify(
-            f"{info.width} × {info.height} · {info.fps:.1f} FPS · {info.duration:.1f} sn. Önce duvarın dört köşesini seç."
+            f"{info.width} × {info.height} · {info.fps:.1f} FPS · {info.duration:.1f} sn. "
+            "Sağdaki 'Duvar ve hedefi işaretle' düğmesiyle duvarı ve hedefi belirle."
         )
 
     def load_demo(self):
@@ -702,6 +716,41 @@ class MainWindow(QMainWindow):
         self.wall_capture = False
         self.canvas.update()
         self.notify("Duvar üzerinde dikdörtgen bir alan seç: sol üst → sağ üst → sağ alt → sol alt.")
+
+    def mark_wall_and_target(self):
+        """Single entry point for both calibration steps.
+
+        The wall corners are picked on the video, the target rectangle is
+        dragged on the wall map below it. This button lives outside the
+        scrolling sidebar so it is always reachable, and it takes the user to
+        whichever step is still missing.
+        """
+        if not self.video_path:
+            self.error("Önce bir video yükle.")
+            return
+        if len(self.canvas.points) < 4:
+            self.start_calibration()
+            self.scroll_sidebar_to_calibration()
+            return
+        self.scroll_wall_map_into_view()
+        self.notify(
+            "Hedefi 'Duvarda isabet' haritasında sürükleyerek seç: köşeleri tutup bırak."
+        )
+
+    def scroll_sidebar_to_calibration(self):
+        """Reveal the calibration section of the scrolling sidebar."""
+        label = self.calibration_hint
+        parent = self.setup_scroll.widget()
+        y = label.mapTo(parent, label.rect().topLeft()).y()
+        self.setup_scroll.verticalScrollBar().setValue(max(0, y - 200))
+
+    def scroll_wall_map_into_view(self):
+        """Bring the wall map (target selector) into the visible area."""
+        self.tabs.setCurrentIndex(0)
+        parent = self.overview_scroll.widget()
+        y = self.wall_chart.mapTo(parent, self.wall_chart.rect().topLeft()).y()
+        bar = self.overview_scroll.verticalScrollBar()
+        bar.setValue(max(0, y - 80))
 
     def canvas_clicked(self, x, y):
         if self.is_busy():
