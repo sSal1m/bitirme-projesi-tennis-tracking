@@ -202,6 +202,60 @@ def test_missing_neural_model_is_explicit_error(tmp_path):
         RFDETRDetector(str(tmp_path / "missing.pth"))
 
 
+def test_stationary_ball_near_wrist_is_rejected_by_speed_filter(calibration):
+    """كرة ساكنة قرب المعصم لا تُحسب ضربة حتى لو انقلب الزاوية (cosine ≈ -1).
+    تُثبت أن فلتر السرعة الدنيا (MIN_BALL_SPEED) يرفض الاهتزاز اليدوي."""
+    samples = []
+    for i in range(61):
+        t = i / 60
+        if t < 0.3:
+            x = 0.5 + t * 0.15  # تتحرك ببطء لليمين (0.15 وحدة/ثانية < العتبة 0.20)
+        else:
+            x = 0.545 - (t - 0.3) * 0.15  # انعكاسとき تتحرك ببطء لليسار
+        y = 0.4
+        samples.append(
+            Sample(
+                t,
+                [x, y],
+                radius=0.01,
+                confidence=0.9,
+                observed=True,
+                racket=[0.45, 0.3, 0.65, 0.5] if 0.1 < t < 0.5 else None,
+                pose=[[0.5, 0.5, 0] for _ in range(33)],
+            )
+        )
+        samples[-1].pose[16] = [x, y, 0.95]  # المعصم على مسافة صفر من الكرة
+    shots = detect_shots(samples, calibration)
+    assert shots == []
+
+
+def test_fast_ball_with_explicit_racket_is_counted(calibration):
+    """كرة بسرعة عالية تُحسب ضربة عندما تتجاوز العتبة الدنيا."""
+    samples = []
+    for i in range(61):
+        t = i / 60
+        if t < 0.2:
+            x = 0.65 + t * 0.75
+        elif t < 0.6:
+            x = 0.8 - (t - 0.2) * 1.25
+        else:
+            x = 0.3 + (t - 0.6) * 0.8
+        y = 0.4
+        samples.append(
+            Sample(
+                t,
+                [x, y],
+                radius=0.01,
+                confidence=0.9,
+                observed=True,
+                racket=[0.75, 0.3, 0.85, 0.5] if 0.12 < t < 0.28 else None,
+            )
+        )
+    shots = detect_shots(samples, calibration)
+    assert len(shots) == 1
+    assert shots[0].contact_t == pytest.approx(0.2, abs=0.04)
+
+
 def test_cancel_keeps_caller_responsible_for_previous_session(demo):
     s = Session(demo.video_path, demo.calibration)
     with pytest.raises(AnalysisCancelled):

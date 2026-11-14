@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 from copy import deepcopy
 from pathlib import Path
@@ -10,6 +11,13 @@ import numpy as np
 from .detection import BallTracker, ColorDetector, PoseDetector, RFDETRDetector
 from .domain import Calibration, Sample, Session, Shot
 from .video import audio_onsets, frames, probe
+
+_CONFIG_PATH = Path(__file__).with_name("config.json")
+try:
+    _CONFIG = json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
+    MIN_BALL_SPEED = float(_CONFIG.get("min_ball_speed_normalized_per_s", 0.20))
+except Exception:
+    MIN_BALL_SPEED = 0.20
 
 
 class AnalysisCancelled(Exception):
@@ -171,7 +179,16 @@ def detect_shots(
                 for wrist in (s.pose[15], s.pose[16])
             )
         )
-        if racket and (
+        # Per-frame ball speed at the shot candidate. Rejects hand-held jitter
+        # where the ball barely moves but the angle flips (cosine ≈ -1).
+        ball_speed = 0.0
+        if i > 0 and samples[i - 1].ball is not None and s.ball is not None:
+            dt = s.t - samples[i - 1].t
+            if dt > 0:
+                ball_speed = float(
+                    np.linalg.norm(np.asarray(s.ball) - samples[i - 1].ball)
+                ) / dt
+        if racket and ball_speed >= MIN_BALL_SPEED and (
             downward_turn >= 0.025
             or (cosine <= -0.45 and downward_turn >= 0.012)
             or (close_to_wrist and cosine <= -0.45)
