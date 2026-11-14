@@ -769,9 +769,9 @@ class MainWindow(QMainWindow):
             return
         self.detector_banner.setText(
             "⚠  RENK / HAREKET TAKİBİ DENEYSELDİR\n"
-            "Bu mod raketi güvenilir bulamaz; vuruşları kaçırır ve elde tutulan "
-            "topu vuruş sayar. Güvenilir sonuç için RF-DETR modelini yükle "
-            "(varsayılan model bulunamadıysa 'RF-DETR modeli seç…' düğmesini kullan)."
+            "Bu mod raketi bulamayabilir ve elde tutulan topu vuruş sayabilir. "
+            "Güvenilir sonuç için RF-DETR modelini yükle (varsayılan model "
+            "bulunamadıysa 'RF-DETR modeli seç…' düğmesini kullan)."
         )
         self.detector_banner.setVisible(True)
 
@@ -839,8 +839,8 @@ class MainWindow(QMainWindow):
         text = self.analysis_setup_text()
         if self.detector.currentIndex() == 0:
             text += (
-                "\n\n⚠ Renk/hareket takibi deneyseldir: raketi güvenilir bulamaz, "
-                "vuruşları kaçırır ve elde tutulan topu vuruş sayar."
+                "\n\n⚠ Renk/hareket takibi deneyseldir: raketi bulamayabilir ve "
+                "elde tutulan topu vuruş sayabilir."
             )
         answer = QMessageBox.question(
             self,

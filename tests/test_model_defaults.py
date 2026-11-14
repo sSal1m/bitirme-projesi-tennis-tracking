@@ -5,7 +5,13 @@ from copy import deepcopy
 
 from tennis_tracking.app import MainWindow
 from tennis_tracking.domain import Calibration, Session
-from tennis_tracking.modelinfo import fingerprint, startup_model_state
+from tennis_tracking.modelinfo import (
+    ROOT,
+    default_model_path,
+    find_default_model,
+    fingerprint,
+    startup_model_state,
+)
 from tennis_tracking.storage import SessionStore
 
 
@@ -29,6 +35,49 @@ def test_missing_bundled_model_is_reported(tmp_path):
     assert path is None
     assert "wall-nano.pth" in message
     assert "deneysel" in message.lower()
+    # The wording must stay non-categorical: the colour tracker *may* fail.
+    assert "bulamayabilir" in message
+    assert "sayabilir" in message
+
+
+def test_default_model_path_is_relative_to_the_project_root(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)  # a completely different working directory
+    path = default_model_path()
+    assert path == ROOT / "models" / "wall-nano.pth"
+    assert path.is_absolute()
+    assert ROOT in path.parents
+
+
+def test_bundled_lookup_ignores_the_working_directory(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    expected = default_model_path()
+    if expected.is_file():
+        assert find_default_model() == expected
+    else:
+        assert find_default_model() is None
+
+
+def test_legacy_session_without_model_fields_still_opens(tmp_path):
+    legacy = {
+        "video_path": "v.mp4",
+        "calibration": {
+            "wall": [[0.1, 0.1], [0.6, 0.1], [0.6, 0.6], [0.1, 0.6]],
+            "target": [0.3, 0.3, 0.7, 0.7],
+        },
+        "shots": [],
+        "samples": [],
+        "automatic_shots": [],
+        "schema_version": 1,
+    }
+    session = Session.from_dict(legacy)
+    assert session.model_path is None
+    assert session.model_sha256 is None
+    assert session.detector == "color"
+    store = SessionStore(tmp_path)
+    store.save(session)
+    loaded = store.load(session.id)
+    assert loaded.model_path is None
+    assert loaded.model_sha256 is None
 
 
 def test_fingerprint_is_stable_and_cache_safe(tmp_path):

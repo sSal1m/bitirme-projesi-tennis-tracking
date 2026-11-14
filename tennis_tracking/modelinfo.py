@@ -29,7 +29,12 @@ def find_default_model(root: Path | None = None) -> Path | None:
 
 
 def fingerprint(path: str | Path | None) -> str | None:
-    """sha256 of a model file, cached so repeated saves stay cheap."""
+    """sha256 of a model file, cached so repeated saves stay cheap.
+
+    Hashing the bundled 122 MB Nano checkpoint takes about 0.1 s, so it is
+    never needed at startup: the fingerprint is only taken when a session is
+    created, and the result is reused for every later save.
+    """
     if not path:
         return None
     key = str(path)
@@ -57,7 +62,8 @@ def startup_model_state(root: Path | None = None) -> tuple[Path | None, str]:
     if path is None:
         return None, (
             f"Varsayılan RF-DETR modeli bulunamadı: models/{DEFAULT_MODEL_NAME}. "
-            "Renk/hareket takibi deneyseldir ve raketi güvenilir bulamaz; "
-            "güvenilir sonuç için model dosyasını elle seç."
+            "Renk/hareket takibi deneyseldir; raketi bulamayabilir ve elde "
+            "tutulan topu vuruş sayabilir. Güvenilir sonuç için model "
+            "dosyasını elle seç."
         )
     return path, f"Varsayılan RF-DETR modeli yüklendi: {path.name}"
