@@ -823,7 +823,7 @@ class MainWindow(QMainWindow):
         return {
             "detector": "rfdetr" if self.detector.currentIndex() == 1 else "color",
             "model": self.model_path,
-            "corners": len(self.canvas.points),
+            "corners": len(self.canvas.active_points()),
             "target": list(self.wall_chart.target),
             "distance": self.distance.value(),
             "fixed": self.fixed_plane.isChecked(),
@@ -902,11 +902,19 @@ class MainWindow(QMainWindow):
             self.notify("Önce bir video yükle.")
             return
         self.player.pause()
+        existing = list(self.canvas.active_points())
         self.canvas.mode = "calibrate"
-        self.canvas.points = []
+        # Corners that are already set are kept so they can be adjusted
+        # instead of being picked all over again.
+        self.canvas.points = [list(point) for point in existing] if len(existing) == 4 else []
         self.wall_capture = False
         self.canvas.update()
-        self.notify("Duvar üzerinde dikdörtgen bir alan seç: sol üst → sağ üst → sağ alt → sol alt.")
+        if len(self.canvas.points) == 4:
+            self.notify(
+                "Mevcut köşeler korundu: sürükleyerek düzelt, ok tuşlarıyla bir piksel kaydır."
+            )
+        else:
+            self.notify("Duvar üzerinde dikdörtgen bir alan seç: sol üst → sağ üst → sağ alt → sol alt.")
 
     def mark_wall_and_target(self):
         """Single entry point for both calibration steps.
@@ -919,7 +927,7 @@ class MainWindow(QMainWindow):
         if not self.video_path:
             self.error("Önce bir video yükle.")
             return
-        if len(self.canvas.points) < 4:
+        if len(self.canvas.active_points()) < 4:
             self.start_calibration()
             self.scroll_sidebar_to_calibration()
             return
@@ -991,7 +999,7 @@ class MainWindow(QMainWindow):
 
     def current_calibration(self):
         return Calibration(
-            wall=deepcopy(self.canvas.points),
+            wall=deepcopy(self.canvas.active_points()),
             target=list(self.wall_chart.target),
             distance_m=self.distance.value() or None,
             fixed_contact_plane=self.fixed_plane.isChecked(),

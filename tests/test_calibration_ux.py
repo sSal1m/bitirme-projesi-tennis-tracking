@@ -308,3 +308,50 @@ def test_loupe_is_drawn_when_a_corner_is_hovered(qapp, tmp_path, demo):
     image = canvas.grab()
     assert not image.isNull()
     window.close()
+
+
+# --------------------------------------------------------------------------
+# the wall the analysis receives must be the wall that is on screen
+# --------------------------------------------------------------------------
+def test_dragged_corner_is_what_the_analysis_receives(qapp, tmp_path, demo):
+    """A dragged corner must not be replaced by the one that was clicked."""
+    window = MainWindow(tmp_path)
+    window.open_session(deepcopy(demo))
+    canvas = _canvas_with_wall(window, VALID_WALL)
+    canvas.set_corner(1, 0.60, 0.15)
+    calibration = window.current_calibration()
+    assert calibration.wall[1] == pytest.approx([0.60, 0.15])
+    assert calibration.wall[1] == pytest.approx(window.session.calibration.wall[1])
+    window.close()
+
+
+def test_clicked_corners_are_still_what_the_analysis_receives(qapp, tmp_path, demo):
+    window = MainWindow(tmp_path)
+    window.open_session(deepcopy(demo))
+    window.canvas.points = [list(point) for point in VALID_WALL]
+    window.canvas.mode = "calibrate"
+    calibration = window.current_calibration()
+    assert [value for point in calibration.wall for value in point] == pytest.approx(
+        [value for point in VALID_WALL for value in point]
+    )
+    window.close()
+
+
+def test_start_calibration_keeps_the_existing_corners(qapp, tmp_path, demo):
+    window = MainWindow(tmp_path)
+    window.open_session(deepcopy(demo))
+    before = [list(point) for point in window.session.calibration.wall]
+    window.start_calibration()
+    assert len(window.canvas.points) == 4
+    assert window.canvas.points == before
+    assert [value for point in window.current_calibration().wall for value in point] == (
+        pytest.approx([value for point in before for value in point])
+    )
+    window.close()
+
+
+def test_summary_counts_the_corners_that_are_on_screen(qapp, tmp_path, demo):
+    window = MainWindow(tmp_path)
+    window.open_session(deepcopy(demo))
+    assert "4/4 köşe" in window.setup_summary.text()
+    window.close()
