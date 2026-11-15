@@ -8,6 +8,64 @@ from uuid import uuid4
 import cv2
 import numpy as np
 
+WALL_CORNER_LABELS = ("TL", "TR", "BR", "BL")
+
+WALL_CORNER_PROBLEMS = {
+    "crossed": (
+        "Duvar köşeleri çapraz seçilmiş: kenarlar birbirini kesiyor. "
+        "Sırayı düzelt: sol üst (TL) → sağ üst (TR) → sağ alt (BR) → sol alt (BL)."
+    ),
+    "reversed": (
+        "Duvar köşeleri ters sırada işaretlenmiş (saat yönünün tersi). "
+        "Sırayı düzelt: sol üst (TL) → sağ üst (TR) → sağ alt (BR) → sol alt (BL)."
+    ),
+    "rotated": (
+        "Duvar köşeleri döndürülmüş: bir köşe yanlış rolde işaretlenmiş. "
+        "Sırayı düzelt: sol üst (TL) → sağ üst (TR) → sağ alt (BR) → sol alt (BL)."
+    ),
+}
+
+
+def wall_corner_problem(points) -> str | None:
+    """Explain why the four wall corners are not in TL→TR→BR→BL order.
+
+    Returns ``"crossed"``, ``"reversed"``, ``"rotated"`` or ``None`` when the
+    corners are usable as they stand.
+    """
+    pts = np.asarray(points, dtype=np.float32)
+    if pts.shape != (4, 2) or not np.isfinite(pts).all():
+        return None
+    if not cv2.isContourConvex(pts):
+        return "crossed"
+    # In image coordinates (y grows downwards) a TL→TR→BR→BL quad has a
+    # positive shoelace sum; the reverse order flips the sign.
+    area = float(
+        sum(
+            float(pts[i][0]) * float(pts[(i + 1) % 4][1])
+            - float(pts[(i + 1) % 4][0]) * float(pts[i][1])
+            for i in range(4)
+        )
+    )
+    if area < 0:
+        return "reversed"
+    top_y = 0.5 * (float(pts[0][1]) + float(pts[1][1]))
+    bottom_y = 0.5 * (float(pts[2][1]) + float(pts[3][1]))
+    left_x = 0.5 * (float(pts[0][0]) + float(pts[3][0]))
+    right_x = 0.5 * (float(pts[1][0]) + float(pts[2][0]))
+    if top_y > bottom_y or left_x > right_x:
+        return "rotated"
+    # A quarter turn swaps the roles of the top edge and the side edge: the
+    # "top" edge then runs down the wall instead of across it.
+    top_run = abs(float(pts[1][0]) - float(pts[0][0]))
+    top_rise = abs(float(pts[1][1]) - float(pts[0][1]))
+    side_run = abs(float(pts[0][0]) - float(pts[3][0]))
+    side_rise = abs(float(pts[0][1]) - float(pts[3][1]))
+    top_slope = top_rise / top_run if top_run > 1e-6 else float("inf")
+    side_slope = side_rise / side_run if side_run > 1e-6 else float("inf")
+    if top_slope > 1.0 and top_slope > 2 * side_slope:
+        return "rotated"
+    return None
+
 
 @dataclass
 class Calibration:
@@ -25,8 +83,11 @@ class Calibration:
             raise ValueError("Duvarın dört köşesini sırayla seç: sol üst, sağ üst, sağ alt, sol alt.")
         if np.any(pts < 0) or np.any(pts > 1):
             raise ValueError("Duvar köşeleri görüntü içinde olmalı.")
-        if not cv2.isContourConvex(pts) or abs(cv2.contourArea(pts)) < 0.005:
-            raise ValueError("Duvar alanı çok küçük veya köşeler çapraz seçildi.")
+        problem = wall_corner_problem(pts)
+        if problem:
+            raise ValueError(WALL_CORNER_PROBLEMS[problem])
+        if abs(cv2.contourArea(pts)) < 0.005:
+            raise ValueError("Duvar alanı çok küçük.")
         if len(self.target) != 4 or not all(math.isfinite(v) for v in self.target):
             raise ValueError("Hedef alanı geçersiz.")
         x0, y0, x1, y1 = self.target

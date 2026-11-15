@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from bisect import bisect_left
 
 import cv2
@@ -8,7 +9,7 @@ from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import QFrame, QLabel, QToolTip, QVBoxLayout, QWidget
 
-from .domain import approach_speed, approach_speed_candidate
+from .domain import WALL_CORNER_LABELS, approach_speed, approach_speed_candidate
 from .rendering import POSE_EDGES
 
 GREEN = QColor("#215b46")
@@ -27,6 +28,10 @@ def as_qimage(bgr):
 
 class VideoCanvas(QWidget):
     point_clicked = Signal(float, float)
+    corner_moved = Signal(int, float, float)
+
+    HANDLE_RADIUS = 13
+    LOUPE_SIZE = 132
 
     def __init__(self):
         super().__init__()
@@ -37,7 +42,16 @@ class VideoCanvas(QWidget):
         self.mode = "view"
         self.t = 0.0
         self._times = []
+        self.drag_index = None
+        self.hover_index = None
+        self.selected_index = None
+        self.mouse_pos = None
+        self.loupe_enabled = True
         self.setCursor(Qt.CrossCursor)
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setToolTip(
+            "Köşeleri sürükle; seçili köşeyi ok tuşlarıyla bir piksel kaydır (Shift: 10 piksel)."
+        )
 
     def set_session(self, session):
         self.session = session
@@ -59,12 +73,132 @@ class VideoCanvas(QWidget):
         self.image = image
         self.update()
 
-    def mousePressEvent(self, event):
-        r = self.image_rect()
-        if not self.image.isNull() and r.contains(event.position()):
-            self.point_clicked.emit(
-                (event.position().x() - r.x()) / r.width(), (event.position().y() - r.y()) / r.height()
+    def active_points(self) -> list:
+        """The corner list the user is currently working on."""
+        if self.mode == "calibrate":
+            return self.points
+        if self.session:
+            return self.session.calibration.wall
+        return self.points
+
+    def corner_at(self, position) -> int | None:
+        """Index of the corner handle under the cursor, if any."""
+        points = self.active_points()
+        if not points:
+            return None
+        rect = self.image_rect()
+        best = None
+        for index, value in enumerate(points):
+            spot = QPointF(
+                rect.x() + value[0] * rect.width(), rect.y() + value[1] * rect.height()
             )
+            distance = (spot.x() - position.x()) ** 2 + (spot.y() - position.y()) ** 2
+            if distance <= self.HANDLE_RADIUS**2 and (best is None or distance < best[0]):
+                best = (distance, index)
+        return best[1] if best else None
+
+    def set_corner(self, index: int, x: float, y: float) -> None:
+        points = self.active_points()
+        if not (0 <= index < len(points)):
+            return
+        points[index] = [min(1.0, max(0.0, x)), min(1.0, max(0.0, y))]
+        self.corner_moved.emit(index, points[index][0], points[index][1])
+        self.update()
+
+    def mousePressEvent(self, event):
+        rect = self.image_rect()
+        if self.image.isNull() or not rect.contains(event.position()):
+            return
+        index = self.corner_at(event.position())
+        if index is not None:
+            self.drag_index = index
+            self.selected_index = index
+            self.setFocus(Qt.MouseFocusReason)
+            self.update()
+            return
+        if self.mode == "calibrate" and len(self.points) < 4:
+            self.point_clicked.emit(
+                (event.position().x() - rect.x()) / rect.width(),
+                (event.position().y() - rect.y()) / rect.height(),
+            )
+
+    def mouseMoveEvent(self, event):
+        rect = self.image_rect()
+        self.mouse_pos = event.position()
+        if self.image.isNull() or not rect.contains(event.position()):
+            self.hover_index = None
+            self.update()
+            return
+        if self.drag_index is not None:
+            self.set_corner(
+                self.drag_index,
+                (event.position().x() - rect.x()) / rect.width(),
+                (event.position().y() - rect.y()) / rect.height(),
+            )
+            return
+        self.hover_index = self.corner_at(event.position())
+        self.update()
+
+    def mouseReleaseEvent(self, event):
+        self.drag_index = None
+        self.update()
+
+    def keyPressEvent(self, event):
+        """Nudge the selected corner one displayed pixel at a time."""
+        points = self.active_points()
+        if self.selected_index is None or not (0 <= self.selected_index < len(points)):
+            super().keyPressEvent(event)
+            return
+        rect = self.image_rect()
+        if rect.isEmpty():
+            super().keyPressEvent(event)
+            return
+        step = 10 if event.modifiers() & Qt.ShiftModifier else 1
+        delta = {
+            Qt.Key_Left: (-step, 0),
+            Qt.Key_Right: (step, 0),
+            Qt.Key_Up: (0, -step),
+            Qt.Key_Down: (0, step),
+        }
+        if event.key() not in delta:
+            super().keyPressEvent(event)
+            return
+        dx, dy = delta[event.key()]
+        x, y = points[self.selected_index]
+        self.set_corner(self.selected_index, x + dx / rect.width(), y + dy / rect.height())
+        event.accept()
+
+    def paint_loupe(self, p, rect, cursor) -> None:
+        """Magnified inset around the cursor so a corner can be placed precisely."""
+        image = self.image
+        if image.isNull() or rect.width() < 40 or cursor is None:
+            return
+        scale = image.width() / rect.width()
+        cx = (cursor.x() - rect.x()) * scale
+        cy = (cursor.y() - rect.y()) * scale
+        span = max(5.0, 22.0 * scale)
+        box = float(self.LOUPE_SIZE)
+        lx = cursor.x() + 20
+        ly = cursor.y() + 20
+        if lx + box > self.width() - 4:
+            lx = cursor.x() - 20 - box
+        if ly + box > self.height() - 4:
+            ly = cursor.y() - 20 - box
+        target = QRectF(lx, ly, box, box)
+        p.save()
+        p.setClipRect(target)
+        p.drawImage(target, image, QRectF(cx - span, cy - span, 2 * span, 2 * span))
+        p.restore()
+        p.setPen(QPen(INK, 2))
+        p.setBrush(Qt.NoBrush)
+        p.drawRect(target)
+        p.setPen(QPen(QColor("#d94141"), 1))
+        p.drawLine(
+            QPointF(target.center().x(), target.top()), QPointF(target.center().x(), target.bottom())
+        )
+        p.drawLine(
+            QPointF(target.left(), target.center().y()), QPointF(target.right(), target.center().y())
+        )
 
     def paintEvent(self, event):
         p = QPainter(self)
@@ -109,10 +243,22 @@ class VideoCanvas(QWidget):
                 p.setBrush(QColor(220, 232, 149, 45))
                 p.drawPolygon(target)
             for n, v in enumerate(points):
-                p.setBrush(GREEN)
-                p.drawEllipse(pt(v), 10, 10)
+                spot = pt(v)
+                active = n in (self.hover_index, self.drag_index, self.selected_index)
+                p.setPen(QPen(ORANGE if active else GREEN, 3 if active else 1))
+                p.setBrush(GREEN if active else QColor("#7fd4a8"))
+                p.drawEllipse(spot, 11, 11)
                 p.setPen(Qt.white)
-                p.drawText(QRectF(pt(v).x() - 10, pt(v).y() - 10, 20, 20), Qt.AlignCenter, str(n + 1))
+                p.drawText(QRectF(spot.x() - 11, spot.y() - 11, 22, 22), Qt.AlignCenter, str(n + 1))
+                if n < len(WALL_CORNER_LABELS):
+                    tag = QRectF(spot.x() + 13, spot.y() - 27, 26, 17)
+                    p.setPen(Qt.NoPen)
+                    p.setBrush(QColor(18, 48, 37, 215))
+                    p.drawRoundedRect(tag, 4, 4)
+                    p.setPen(QColor("#f2f7e4"))
+                    p.setFont(QFont("Segoe UI", 9, QFont.Bold))
+                    p.drawText(tag, Qt.AlignCenter, WALL_CORNER_LABELS[n])
+                    p.setFont(QFont("Segoe UI", 12))
                 p.setPen(LIME)
         if self.session and self.mode != "calibrate":
             if self._times:
@@ -164,6 +310,8 @@ class VideoCanvas(QWidget):
             Qt.AlignCenter,
             "KALİBRASYON" if self.mode == "calibrate" else "DUVAR ANTRENMANI",
         )
+        if self.loupe_enabled and (self.hover_index is not None or self.drag_index is not None):
+            self.paint_loupe(p, r, self.mouse_pos)
 
 
 class MetricCard(QFrame):
@@ -207,6 +355,9 @@ class WallChart(QWidget):
     target_changed = Signal(list)
     shot_clicked = Signal(str)
 
+    HANDLE_RADIUS = 9
+    MIN_SIZE = 0.02
+
     def __init__(self):
         super().__init__()
         self.setMinimumHeight(195)
@@ -214,6 +365,8 @@ class WallChart(QWidget):
         self.session = None
         self.target = [0.3, 0.3, 0.7, 0.7]
         self.drag_start = None
+        self.drag_mode = None
+        self.drag_original = None
         self.setCursor(Qt.CrossCursor)
         self.setMouseTracking(True)
 
@@ -314,17 +467,93 @@ class WallChart(QWidget):
                 nearest = (distance, shot, number)
         return nearest if nearest is not None and nearest[0] <= 12**2 else None
 
+    def handle_positions(self):
+        """Corner and edge-midpoint handles of the target, in plot coordinates."""
+        polygon = self.target_polygon()
+        corners = [QPointF(polygon[i]) for i in range(4)]
+        midpoints = []
+        for index in range(4):
+            a = corners[index]
+            b = corners[(index + 1) % 4]
+            midpoints.append(QPointF((a.x() + b.x()) / 2, (a.y() + b.y()) / 2))
+        return corners, midpoints
+
+    def handle_at(self, pos):
+        """Which target handle sits under the cursor, if any."""
+        corners, midpoints = self.handle_positions()
+        for index, spot in enumerate(corners):
+            if math.hypot(spot.x() - pos.x(), spot.y() - pos.y()) <= self.HANDLE_RADIUS:
+                return ("corner", index)
+        for index, spot in enumerate(midpoints):
+            if math.hypot(spot.x() - pos.x(), spot.y() - pos.y()) <= self.HANDLE_RADIUS:
+                return ("edge", index)
+        return None
+
+    def clamp_target(self, values):
+        x0, y0, x1, y1 = values
+        x0, x1 = sorted((min(1.0, max(0.0, x0)), min(1.0, max(0.0, x1))))
+        y0, y1 = sorted((min(1.0, max(0.0, y0)), min(1.0, max(0.0, y1))))
+        if x1 - x0 < self.MIN_SIZE:
+            x0 = max(0.0, x1 - self.MIN_SIZE)
+        if y1 - y0 < self.MIN_SIZE:
+            y0 = max(0.0, y1 - self.MIN_SIZE)
+        return [x0, y0, x1, y1]
+
+    def update_drag(self, pos):
+        """Live preview while a handle, the target itself or a new box is dragged."""
+        end = self.normalized(pos)
+        mode, index = self.drag_mode
+        sx, sy = self.drag_start
+        x0, y0, x1, y1 = self.drag_original
+        if mode == "move":
+            dx = end[0] - sx
+            dy = end[1] - sy
+            values = [x0 + dx, y0 + dy, x1 + dx, y1 + dy]
+        elif mode == "new":
+            values = [min(sx, end[0]), min(sy, end[1]), max(sx, end[0]), max(sy, end[1])]
+        elif mode == "corner":
+            values = [x0, y0, x1, y1]
+            values[index * 2] = end[0]
+            values[index * 2 + 1] = end[1]
+        else:  # edge: 0 top, 1 right, 2 bottom, 3 left
+            values = [x0, y0, x1, y1]
+            if index == 0:
+                values[1] = end[1]
+            elif index == 1:
+                values[2] = end[0]
+            elif index == 2:
+                values[3] = end[1]
+            else:
+                values[0] = end[0]
+        self.target = self.clamp_target(values)
+        self.update()
+
     def mousePressEvent(self, event):
-        if not self.wall_polygon().containsPoint(event.position(), Qt.OddEvenFill):
+        pos = event.position()
+        handle = self.handle_at(pos)
+        if handle is not None:
+            self.drag_mode = handle
+            self.drag_start = self.normalized(pos)
+            self.drag_original = list(self.target)
             return
-        nearest = self.nearest_shot(event.position())
+        nearest = self.nearest_shot(pos)
         if nearest is not None:
             self.shot_clicked.emit(nearest[1].id)
             return
-        self.drag_start = self.normalized(event.position())
+        if self.target_polygon().containsPoint(pos, Qt.OddEvenFill):
+            self.drag_mode = ("move", None)
+            self.drag_start = self.normalized(pos)
+            self.drag_original = list(self.target)
+            return
+        if not self.wall_polygon().containsPoint(pos, Qt.OddEvenFill):
+            return
+        self.drag_mode = ("new", None)
+        self.drag_start = self.normalized(pos)
+        self.drag_original = list(self.target)
 
     def mouseMoveEvent(self, event):
-        if self.drag_start is not None:
+        if self.drag_mode is not None:
+            self.update_drag(event.position())
             return
         nearest = self.nearest_shot(event.position())
         if nearest is None:
@@ -342,15 +571,14 @@ class WallChart(QWidget):
         )
 
     def mouseReleaseEvent(self, event):
-        if self.drag_start:
-            end = self.normalized(event.position())
-            x0, x1 = sorted([self.drag_start[0], end[0]])
-            y0, y1 = sorted([self.drag_start[1], end[1]])
-            if x1 - x0 > 0.03 and y1 - y0 > 0.03:
-                self.target = [x0, y0, x1, y1]
-                self.target_changed.emit(self.target)
-                self.update()
-        self.drag_start = None
+        if self.drag_mode is not None:
+            # A press and release without any move in between still defines a
+            # box, so the final position is applied here.
+            self.update_drag(event.position())
+            self.drag_mode = None
+            self.drag_start = None
+            self.target_changed.emit(self.target)
+            self.update()
 
     def paintEvent(self, event):
         p = QPainter(self)
@@ -363,7 +591,7 @@ class WallChart(QWidget):
         p.drawText(20, 26, "DUVARDA İSABET")
         p.setPen(MUTED)
         p.setFont(QFont("Segoe UI", 8))
-        p.drawText(20, 44, "Alanı sürükleyerek hedefi değiştir")
+        p.drawText(20, 44, "Hedefi sürükle; köşe ve kenar tutamaklarıyla boyutlandır")
         p.setPen(QPen(LINE, 1))
         p.setBrush(QColor("#f6f8f3"))
         p.drawPolygon(self.wall_polygon())
@@ -372,6 +600,14 @@ class WallChart(QWidget):
         p.setPen(QPen(GREEN, 1, Qt.DashLine))
         p.setBrush(QColor("#e7edd1"))
         p.drawPolygon(target)
+        corners, midpoints = self.handle_positions()
+        p.setBrush(PANEL)
+        p.setPen(QPen(GREEN, 2))
+        for spot in corners:
+            p.drawRect(QRectF(spot.x() - 4, spot.y() - 4, 8, 8))
+        p.setPen(QPen(ORANGE, 2))
+        for spot in midpoints:
+            p.drawEllipse(spot, 3.5, 3.5)
         if self.session:
             for shot in self.session.shots:
                 if not shot.included:

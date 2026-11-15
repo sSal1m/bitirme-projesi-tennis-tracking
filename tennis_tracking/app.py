@@ -41,7 +41,16 @@ from PySide6.QtWidgets import (
 )
 
 from .analysis import AnalysisCancelled, analyze
-from .domain import Calibration, Session, Shot, approach_speed, approach_speed_candidate
+from .domain import (
+    WALL_CORNER_LABELS,
+    WALL_CORNER_PROBLEMS,
+    Calibration,
+    Session,
+    Shot,
+    approach_speed,
+    approach_speed_candidate,
+    wall_corner_problem,
+)
 from .hardware import send_summary
 from .modelinfo import fingerprint, startup_model_state
 from .rendering import export_video
@@ -169,6 +178,8 @@ class MainWindow(QMainWindow):
         self.video_path = None
         self.model_path = None
         self.wall_capture = False
+        self.target_history: list[list[float]] = []
+        self.applying_target = False
         self.player = QMediaPlayer(self)
         self.audio = QAudioOutput(self)
         self.audio.setVolume(0.5)
@@ -271,6 +282,7 @@ class MainWindow(QMainWindow):
         vl.addWidget(video_heading)
         self.canvas = VideoCanvas()
         self.canvas.point_clicked.connect(self.canvas_clicked)
+        self.canvas.corner_moved.connect(self.canvas_corner_moved)
         vl.addWidget(self.canvas, 1)
         control_bar = QWidget()
         control_bar.setObjectName("videoToolbar")
@@ -386,6 +398,30 @@ class MainWindow(QMainWindow):
         self.calibration_hint.setWordWrap(True)
         self.calibration_hint.setObjectName("muted")
         setup.addWidget(self.calibration_hint)
+        setup.addSpacing(6)
+        setup.addWidget(QLabel("04  HEDEF ALANI", objectName="setupGroup"))
+        target_form = QFormLayout()
+        target_form.setVerticalSpacing(6)
+        self.target_spins = []
+        for name, value in (
+            ("Sol (x0)", 0.3),
+            ("Üst (y0)", 0.3),
+            ("Sağ (x1)", 0.7),
+            ("Alt (y1)", 0.7),
+        ):
+            field = QDoubleSpinBox()
+            field.setRange(0.0, 1.0)
+            field.setDecimals(3)
+            field.setSingleStep(0.01)
+            field.setValue(value)
+            field.valueChanged.connect(self.target_fields_changed)
+            target_form.addRow(name, field)
+            self.target_spins.append(field)
+        setup.addLayout(target_form)
+        target_row = QHBoxLayout()
+        target_row.addWidget(button("Hedefi sıfırla", self.reset_target))
+        target_row.addWidget(button("Geri al", self.undo_target))
+        setup.addLayout(target_row)
         setup.addStretch()
         for widget in self.setup_panel.findChildren(QPushButton):
             widget.setMinimumHeight(34)
@@ -498,6 +534,9 @@ class MainWindow(QMainWindow):
         self.shot_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.shot_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.shot_table.itemSelectionChanged.connect(self.select_shot)
+        # The current row changes even when a row that was already selected is
+        # clicked again, which itemSelectionChanged does not report.
+        self.shot_table.selectionModel().currentRowChanged.connect(self.select_shot)
         self.shot_table.cellDoubleClicked.connect(lambda row, col: self.jump_to_shot(row))
         layout.addWidget(self.shot_table, 1)
         edit = QHBoxLayout()
@@ -621,6 +660,8 @@ class MainWindow(QMainWindow):
         self.distance.setValue(0)
         self.fixed_plane.setChecked(False)
         self.wall_chart.target = self.session.calibration.target
+        self.sync_target_fields(self.session.calibration.target)
+        self.target_history = []
         self.title.setText("Antrenmanını keşfet.")
         self.tabs.setCurrentIndex(0)
         self.new_shot()
@@ -652,6 +693,8 @@ class MainWindow(QMainWindow):
         self.canvas.points = deepcopy(session.calibration.wall)
         self.canvas.set_session(session)
         self.wall_chart.target = session.calibration.target
+        self.sync_target_fields(session.calibration.target)
+        self.target_history = []
         self.distance.setValue(session.calibration.distance_m or 0)
         self.fixed_plane.setChecked(session.calibration.fixed_contact_plane)
         self.hand.setCurrentIndex(session.calibration.handedness == "left")
@@ -938,8 +981,13 @@ class MainWindow(QMainWindow):
                     self.refresh_results()
                     self.refresh_setup_summary()
                 except ValueError as exc:
-                    self.canvas.points = []
+                    # Keep the corners: they can be dragged into place instead of
+                    # clicking all four again.
                     self.notify(str(exc))
+                    self.calibration_hint.setText(
+                        f"{len(self.canvas.points)} / 4 köşe seçildi · "
+                        "hata düzeltilene kadar köşeleri sürükleyebilirsin"
+                    )
 
     def current_calibration(self):
         return Calibration(
@@ -1172,6 +1220,10 @@ class MainWindow(QMainWindow):
                 if candidate_speed is not None
                 else "Duvar zamanı bulunamadı veya ölçülen mesafe/geçerli süre eksik; hız hesaplanamaz."
             )
+        # setRowCount leaves the first row selected in the model. Clearing it
+        # makes the next click on row 1 always count as a change, so the review
+        # panel can be opened for the first shot too.
+        self.shot_table.clearSelection()
         self.shot_table.blockSignals(False)
         hit = f"{s['hit_rate']:g}%" if s["hit_rate"] is not None else "--"
         speed = f"{s['approach_kmh']:g}" if s["approach_kmh"] is not None else "--"
@@ -1299,11 +1351,75 @@ class MainWindow(QMainWindow):
 
     def change_target(self, target):
         if self.session:
-            self.session.calibration.target = target
+            previous = list(self.session.calibration.target)
+            if previous != list(target) and not self.applying_target:
+                self.target_history.append(previous)
+                del self.target_history[:-20]
+            self.session.calibration.target = list(target)
+            self.wall_chart.target = list(target)
+            self.sync_target_fields(target)
             self.refresh_results()
             self.refresh_setup_summary()
             if len(self.session.calibration.wall) == 4:
                 self.persist()
+
+    def sync_target_fields(self, target) -> None:
+        for field, value in zip(self.target_spins, target):
+            field.blockSignals(True)
+            field.setValue(float(value))
+            field.blockSignals(False)
+
+    def target_fields_changed(self, *_):
+        """The numeric fields are the source of truth while they are edited."""
+        values = [field.value() for field in self.target_spins]
+        x0, y0, x1, y1 = values
+        if x1 - x0 < 0.02:
+            x1 = min(1.0, x0 + 0.02)
+        if y1 - y0 < 0.02:
+            y1 = min(1.0, y0 + 0.02)
+        self.change_target([x0, y0, x1, y1])
+
+    def reset_target(self):
+        self.change_target([0.3, 0.3, 0.7, 0.7])
+        self.notify("Hedef alanı varsayılan değere döndürüldü.")
+
+    def undo_target(self):
+        if not self.target_history:
+            self.notify("Geri alınacak hedef değişikliği yok.")
+            return
+        previous = self.target_history.pop()
+        self.applying_target = True
+        try:
+            self.change_target(previous)
+        finally:
+            self.applying_target = False
+        self.notify("Hedef alanı geri alındı.")
+
+    def canvas_corner_moved(self, index: int, x: float, y: float) -> None:
+        """A wall corner was dragged; keep the calibration and results in sync."""
+        if not self.session:
+            return
+        wall = self.canvas.active_points()
+        if len(wall) != 4:
+            return
+        problem = wall_corner_problem(wall)
+        if problem:
+            self.calibration_hint.setText(WALL_CORNER_PROBLEMS[problem])
+            self.notify(WALL_CORNER_PROBLEMS[problem])
+            return
+        if self.canvas.mode == "calibrate":
+            self.session.calibration.wall = [list(point) for point in wall]
+            self.canvas.mode = "view"
+        # The old geometry can no longer be trusted for placement.
+        for shot in self.session.shots:
+            shot.wall_xy = None
+        self.refresh_results()
+        self.refresh_setup_summary()
+        self.persist()
+        self.calibration_hint.setText(
+            f"{WALL_CORNER_LABELS[index]} · x={x:.4f}, y={y:.4f} · "
+            "ok tuşlarıyla bir piksel kaydır (Shift: 10 piksel)"
+        )
 
     def show_wall_shot(self, shot_id):
         if not self.session or not self.video_path:
@@ -1337,7 +1453,7 @@ class MainWindow(QMainWindow):
             return next((s for s in self.session.shots if s.id == self.edit_id), None)
         return None
 
-    def select_shot(self):
+    def select_shot(self, *_):
         row = self.shot_table.currentRow()
         if not self.session or row < 0 or row >= len(self.session.shots):
             return
