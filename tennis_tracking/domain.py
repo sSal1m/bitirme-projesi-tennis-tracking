@@ -118,6 +118,8 @@ class Session:
     width: int = 0
     height: int = 0
     detector: str = "color"
+    model_path: str | None = None  # Weights that produced this session.
+    model_sha256: str | None = None  # Fingerprint of the weights above.
     status: str = "ready"
     warnings: list[str] = field(default_factory=list)
     samples: list[Sample] = field(default_factory=list)

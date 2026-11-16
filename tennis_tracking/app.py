@@ -43,6 +43,7 @@ from PySide6.QtWidgets import (
 from .analysis import AnalysisCancelled, analyze
 from .domain import Calibration, Session, Shot, approach_speed, approach_speed_candidate
 from .hardware import send_summary
+from .modelinfo import fingerprint, startup_model_state
 from .rendering import export_video
 from .storage import SessionStore, export_csv, export_json
 from .video import frame_at, probe
@@ -70,6 +71,9 @@ QMainWindow, #main { background: #f3f5ef; }
 #liveLabel { color: #5b7662; font-size: 9px; font-weight: 700; }
 #liveValue { color: #1e4937; font-size: 19px; font-weight: 700; }
 #notice { background: #e7edd1; border-radius: 6px; padding: 9px; color: #4a5b37; }
+#warningBanner { background: #fdf1e0; border: 2px solid #d99a34; border-radius: 8px; padding: 11px 13px; color: #6b4714; font-weight: 700; }
+#setupSummary { background: #f2f6ec; border: 1px solid #dce4d8; border-radius: 8px; padding: 8px 11px; color: #3d5a48; }
+#modelLabel { color: #466b50; font-size: 11px; font-weight: 700; }
 QPushButton { border: 1px solid #ccd5c4; background: #fffef8; border-radius: 6px; padding: 8px 12px; }
 QPushButton:hover { background: #e8efd8; }
 QPushButton:disabled { color: #9ba595; background: #edf0e7; }
@@ -231,6 +235,15 @@ class MainWindow(QMainWindow):
         self.export_btn = button("Dışa aktar ↗", self.export_results)
         header.addWidget(self.export_btn)
         content.addLayout(header)
+        self.detector_banner = QLabel()
+        self.detector_banner.setObjectName("warningBanner")
+        self.detector_banner.setWordWrap(True)
+        self.detector_banner.setVisible(False)
+        content.addWidget(self.detector_banner)
+        self.setup_summary = QLabel()
+        self.setup_summary.setObjectName("setupSummary")
+        self.setup_summary.setWordWrap(True)
+        content.addWidget(self.setup_summary)
         self.tabs = QTabWidget()
         content.addWidget(self.tabs, 1)
         self.overview_scroll = QScrollArea()
@@ -359,6 +372,10 @@ class MainWindow(QMainWindow):
         setup.addLayout(measure_form)
         setup.addWidget(button("Mesafeyi oturuma uygula", self.apply_distance))
         setup.addWidget(button("RF-DETR modeli seç…", self.choose_model))
+        self.model_label = QLabel("Model: yüklenmedi")
+        self.model_label.setObjectName("modelLabel")
+        self.model_label.setWordWrap(True)
+        setup.addWidget(self.model_label)
         setup.addSpacing(8)
         setup.addWidget(QLabel("03  DUVAR KALİBRASYONU", objectName="setupGroup"))
         setup.addWidget(button("Duvarın 4 köşesini seç", self.start_calibration))
@@ -446,6 +463,11 @@ class MainWindow(QMainWindow):
         progress_row.addWidget(self.progress, 1)
         progress_row.addWidget(self.cancel_btn)
         content.addLayout(progress_row)
+        self.detector.currentIndexChanged.connect(self.refresh_detector_banner)
+        self.detector.currentIndexChanged.connect(self.refresh_setup_summary)
+        self.distance.valueChanged.connect(self.refresh_setup_summary)
+        self.fixed_plane.toggled.connect(self.refresh_setup_summary)
+        self.auto_detect_model()
 
     def _build_review(self):
         tab = QWidget()
@@ -634,10 +656,14 @@ class MainWindow(QMainWindow):
         self.fixed_plane.setChecked(session.calibration.fixed_contact_plane)
         self.hand.setCurrentIndex(session.calibration.handedness == "left")
         self.mirrored.setChecked(session.calibration.mirrored)
+        if session.model_path and Path(session.model_path).is_file():
+            self.model_path = session.model_path
+            self.refresh_model_label()
         self.detector.setCurrentIndex(session.detector == "rfdetr")
         self.name.setText(session.name)
         self.title.setText(session.name)
         self.refresh_results()
+        self.refresh_setup_summary()
         self.notify(" · ".join(session.warnings) or "Oturum yüklendi.")
 
     def video_frame(self, frame):
@@ -705,6 +731,128 @@ class MainWindow(QMainWindow):
             self.model_path = path
             self.detector.setCurrentIndex(1)
             self.notify("Model seçildi: " + Path(path).name)
+
+    def auto_detect_model(self):
+        """Start in the best available mode instead of the experimental one."""
+        path, message = startup_model_state()
+        if path is None:
+            self.model_path = None
+            self.detector.setCurrentIndex(0)
+            self.notify(message)
+        else:
+            self.model_path = str(path)
+            self.detector.setCurrentIndex(1)
+            self.notify(message)
+        self.refresh_model_label()
+        self.refresh_detector_banner()
+        self.refresh_setup_summary()
+
+    def refresh_model_label(self):
+        """Always show which weights are loaded, not just after a file dialog."""
+        if not self.model_path:
+            self.model_label.setText("Model: yüklenmedi")
+            self.model_label.setToolTip("RF-DETR modeli seçilmedi.")
+            return
+        path = Path(self.model_path)
+        try:
+            size = path.stat().st_size / 1_000_000
+            size_text = f"{size:.0f} MB"
+        except OSError:
+            size_text = "?"
+        self.model_label.setText(f"Model: {path.name} · {size_text}")
+        self.model_label.setToolTip(str(path))
+
+    def refresh_detector_banner(self, *_):
+        """Loud warning while the experimental colour tracker is selected."""
+        if self.detector.currentIndex() == 1:
+            self.detector_banner.setVisible(False)
+            return
+        self.detector_banner.setText(
+            "⚠  RENK / HAREKET TAKİBİ DENEYSELDİR\n"
+            "Bu mod raketi bulamayabilir ve elde tutulan topu vuruş sayabilir. "
+            "Güvenilir sonuç için RF-DETR modelini yükle (varsayılan model "
+            "bulunamadıysa 'RF-DETR modeli seç…' düğmesini kullan)."
+        )
+        self.detector_banner.setVisible(True)
+
+    def analysis_setup_summary(self) -> dict:
+        """Everything that decides how trustworthy the next analysis is."""
+        return {
+            "detector": "rfdetr" if self.detector.currentIndex() == 1 else "color",
+            "model": self.model_path,
+            "corners": len(self.canvas.points),
+            "target": list(self.wall_chart.target),
+            "distance": self.distance.value(),
+            "fixed": self.fixed_plane.isChecked(),
+        }
+
+    def refresh_setup_summary(self, *_):
+        """Keep the always-visible summary of the pending analysis up to date."""
+        summary = self.analysis_setup_summary()
+        detector = (
+            "RF-DETR · özel model"
+            if summary["detector"] == "rfdetr"
+            else "Renk / hareket · deneysel"
+        )
+        model = Path(summary["model"]).name if summary["model"] else "yok"
+        corners = f"{summary['corners']}/4 köşe"
+        target = " × ".join(f"{v:.2f}" for v in summary["target"])
+        if summary["distance"] > 0 and summary["fixed"]:
+            distance = f"{summary['distance']:.2f} m (sabit düzlem)"
+        elif summary["distance"] > 0:
+            distance = f"{summary['distance']:.2f} m (düzlem işaretlenmedi)"
+        else:
+            distance = "girilmedi (hız hesaplanmaz)"
+        self.setup_summary.setText(
+            f"<b>Analiz ayarları</b> &nbsp;·&nbsp; Kaşif: {detector} "
+            f"&nbsp;·&nbsp; Model: {model} &nbsp;·&nbsp; Duvar: {corners} "
+            f"&nbsp;·&nbsp; Hedef: {target} &nbsp;·&nbsp; Mesafe: {distance}"
+        )
+
+    def analysis_setup_text(self) -> str:
+        summary = self.analysis_setup_summary()
+        model = Path(summary["model"]).name if summary["model"] else "(yok)"
+        detector = (
+            "RF-DETR · özel model"
+            if summary["detector"] == "rfdetr"
+            else "Renk / hareket · deneysel"
+        )
+        if summary["distance"] > 0 and summary["fixed"]:
+            distance = f"{summary['distance']:.2f} m (sabit temas düzlemi)"
+        elif summary["distance"] > 0:
+            distance = f"{summary['distance']:.2f} m (düzlem işaretlenmedi)"
+        else:
+            distance = "girilmedi — hız hesaplanmayacak"
+        target = ", ".join(f"{v:.2f}" for v in summary["target"])
+        return "\n".join(
+            [
+                f"Kaşif      : {detector}",
+                f"Model      : {model}",
+                f"Duvar köşe : {summary['corners']} / 4",
+                f"Hedef      : {target}",
+                f"Mesafe     : {distance}",
+            ]
+        )
+
+    def confirm_analysis(self) -> bool:
+        """Show the pending setup and ask for a go-ahead when it is risky."""
+        text = self.analysis_setup_text()
+        if self.detector.currentIndex() == 0:
+            text += (
+                "\n\n⚠ Renk/hareket takibi deneyseldir: raketi bulamayabilir ve "
+                "elde tutulan topu vuruş sayabilir."
+            )
+        answer = QMessageBox.question(
+            self,
+            "Analizi başlat",
+            f"Analiz şu ayarlarla çalışacak:\n\n{text}\n\nDevam edilsin mi?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes,
+        )
+        if answer != QMessageBox.Yes:
+            self.notify("Analiz başlatılmadı.")
+            return False
+        return True
 
     def start_calibration(self):
         if not self.video_path:
@@ -788,6 +936,7 @@ class MainWindow(QMainWindow):
                         )
                     self.canvas.mode = "view"
                     self.refresh_results()
+                    self.refresh_setup_summary()
                 except ValueError as exc:
                     self.canvas.points = []
                     self.notify(str(exc))
@@ -827,8 +976,29 @@ class MainWindow(QMainWindow):
             f"{len(included) - timed} tanesinde geçerli duvar zamanı yok. Eksikleri Vuruş inceleme bölümünde tamamlayabilirsin."
         )
 
+    def build_analysis_session(self) -> Session:
+        """The session the next analysis will produce, including its weights."""
+        calibration = self.current_calibration()
+        detector = "color" if self.detector.currentIndex() == 0 else "rfdetr"
+        model = self.model_path if detector == "rfdetr" else None
+        return Session(
+            video_path=self.video_path,
+            calibration=calibration,
+            name=self.name.text().strip() or Path(self.video_path).stem,
+            detector=detector,
+            model_path=model,
+            model_sha256=fingerprint(model) if model else None,
+        )
+
     def start_analysis(self):
         if not self.session or self.is_busy():
+            return
+        corners = len(self.canvas.points)
+        if corners < 4:
+            self.error(
+                f"Duvar kalibrasyonu eksik: {corners}/4 köşe seçildi. Analiz için "
+                "dört köşeyi sırayla (sol üst → sağ üst → sağ alt → sol alt) seç."
+            )
             return
         try:
             calibration = self.current_calibration()
@@ -839,14 +1009,11 @@ class MainWindow(QMainWindow):
         if self.detector.currentIndex() == 1 and not self.model_path:
             self.error("Önce eğitilmiş RF-DETR modelini seç. Renk modu model dosyası olmadan çalışır.")
             return
+        if not self.confirm_analysis():
+            return
         self.player.pause()
         # Re-analysis creates a new session so reviewed results are not overwritten.
-        session = Session(
-            video_path=self.video_path,
-            calibration=calibration,
-            name=self.name.text().strip() or Path(self.video_path).stem,
-            detector="color" if self.detector.currentIndex() == 0 else "rfdetr",
-        )
+        session = self.build_analysis_session()
         pose = ROOT / "models" / "pose_landmarker_lite.task"
         self.run_work(
             lambda progress, stop: analyze(session, self.model_path, str(pose), progress, stop),
@@ -1134,6 +1301,7 @@ class MainWindow(QMainWindow):
         if self.session:
             self.session.calibration.target = target
             self.refresh_results()
+            self.refresh_setup_summary()
             if len(self.session.calibration.wall) == 4:
                 self.persist()
 
